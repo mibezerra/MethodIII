@@ -1,0 +1,347 @@
+---
+title: "Methods III: Replication Exercise 2, Lab and Survey Experiments"
+author: "Camila"
+date: "01st April, 2020"
+output: pdf_document
+---
+
+
+# FLS 6415: Replication 2 - Survey and Lab Experiments
+
+
+### 1. Briefly describe what the ‘treatment’ is in this experiment.  
+
+The researches divided the sample by gender and ethnicity, which were randomized. Each subject in the research received one envelope with money and she should share the amount with two people. There are two combinations possible of recipients: (1) one recipient and subject are of the same ethnicity, and the other recipient is different; (2) both recipients are of different ethnicity.
+
+Treatment:
+
+* in-group/out-group pairing;
+* control group: two different out-group recipients
+
+
+### 2. To describe how the players split the money in all the games, replicate a figure similar to Figure 1 (or an equivalent Table if a Figure is tricky).
+
+```{r message = F}
+# open libraries
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(knitr)
+library(ggthemes)
+library(Rmisc)
+library(broom)
+```
+
+
+```{r}
+#open database
+data <- "https://jonnyphillips.github.io/Methods_III/Classes/Class_4/Replication/Whitt_replication.csv"
+data_df <- read.csv(data)
+```
+
+
+```{r}
+n_obs <- nrow(data_df)
+
+# Create a function
+func_amount <- function(x){
+if (x == 0 | x == 10) {
+Amount <- "0 and 10"
+}
+else if (x == 1 | x == 9) {
+Amount <- "1 and 9"
+}
+else if (x == 2 | x == 8) {
+Amount <- "2 and 8"
+}else if (x == 3 | x == 7){
+  Amount <- "3 and 7"
+}else if (x == 4 | x == 6){
+  Amount <- "4 and 6"
+}else{
+  Amount <- "5 and 5"
+}
+return(Amount)
+}
+
+#apply the function to a column in a data frame                        
+data_df$amount_recode <- sapply(data_df$Amount, func_amount)
+table(data_df$amount_recode )
+
+ data_df %>% 
+  dplyr::group_by(amount_recode) %>% 
+  dplyr::summarise(n = n(),
+    amount_per = round(n/(n_obs) *100, digits = 2)) %>% 
+   ggplot(aes(y = amount_per, x = amount_recode))+
+  geom_col(color = "black", fill = "darkblue")+
+  ylim(0, 70)+
+  xlab("Allocation Decision")+
+  ylab("%")+
+  ggtitle("Fig 1. How subjects allocated 10 KM between two recipients (percentage).")+
+  labs(caption = "Based on Whitt, 2014 - Replication Exercise")+
+  geom_text(aes(label  = amount_per), position = position_dodge(0.3), vjust = -0.4)+
+  theme_few()
+```
+
+As we can see in figure 01, 66.37% of the respondents shared the amount equally between the two recipients. Only 7.74% have given the total amount to only one recipient.
+
+### 3. Calculate the average amount that each subject allocated to a co-ethnic (a respondent of the same ethnicity as the subject). What can we conclude from this number about co-ethnic bias?
+
+When the subject is of the same ethnicity as the respondent, a co-ethnic, the respondent is inclined to share the money almost equally, on average 5,75, since the 95%CI[5.59; 5.90], favoring the subject.
+
+```{r}
+data_eq <- data_df %>% 
+  filter(Subject_ethnicity == Recipient_ethnicity) %>% 
+  select(Amount)
+
+boxplot(data_eq$Amount)
+CI(data_eq$Amount)
+```
+
+### 4. Produce a 3x3 table showing the average allocation decision, with the subject’s ethnicity in the rows and the recipient’s ethnicity in the columns.
+
+```{r}
+data_df %>% 
+  dplyr::group_by(Subject_ethnicity, Recipient_ethnicity)%>%  
+  dplyr::summarise(avg = round(mean(Amount), digits = 2)) %>% 
+  spread(Recipient_ethnicity, avg) %>% 
+  #tidyr::pivot_wider(Recipient_ethnicity, avg) %>% 
+  kable(col.names = c(" Subject Ethnicity", "Bosnjak", "Croat", "Serb"))
+```
+
+### 5. From the table you produced in Q4, which ethnicity exhibits the greatest co-ethnic favouritism (in-group bias)? Which ethnic pairing is most asymmetric (i.e. where A treats B better then B treats A)?
+
+
+The greatest in-groups bias occurs among the Croats. The smallest is among Serbs. 
+
+The most asymmetric pairing is Bosnjak x Croat: On average Bosniaks treat 1.26 better than Croats than it's treated by the Croats. 
+The most symmetric pairing is Serb X Croat. On average, Serbs treat 0.12 Croats better than Croats treat them, the smallest difference among the groups.
+
+But with only this information we cannot affirm the differences are statistically significant.
+
+
+```{r}
+table33 <- data_df %>% 
+  dplyr::group_by(Subject_ethnicity, Recipient_ethnicity)%>%  
+  dplyr::summarise(avg = round(mean(Amount), digits = 2)) %>% 
+  spread(Recipient_ethnicity, avg)
+
+# Bosnjak x Croat
+bc <- table33[1, 2] - table33[2, 2]
+
+# Bosnjak x Serb
+bs <- table33[1, 4] - table33[3,2]
+
+# Serb x Croat
+sc <- table33[3, 3] - table33[2, 4]
+
+data.frame(bc, bs, sc)
+```
+
+
+### 6. Another way to analyse the data is with a regression. First, conduct an OLS regression to assess whether the recipient’s ethnicity has a general effect on the amount they receive, ignoring the subject’s ethnicity for now. Interpret the results of this regression.
+
+I conducted two bivariate regressions in order to assess whether the recipient’s ethnicity has a general effect on the amount they receive.
+
+In the first regression, the Bosniak ethnic is the reference, thus, I am comparing Croat to Bosniak and Serb to Bosniak. The difference between the groups isn’t statistically significant, since, t-statistic for the coefficients is smaller than 2 and p-value bigger than 0.05.
+
+
+```{r}
+data_df %>% 
+lm(Amount ~ Recipient_ethnicity, data = .) %>% 
+  summary() %>% 
+  tidy() %>% 
+  kable()
+```
+
+In the second one, the Serb ethnic is the reference, thus, I am comparing Bosniak to Serb and Croat to Serb. The difference between the first group isn't statistically significant, since, t-statistic < 2 and p-value > 0.05. On the other hand, the difference between Croat and Serb is statistically significant, but the difference is small, only 0.31.
+
+```{r}
+data_df %>% 
+lm(Amount ~ relevel(Recipient_ethnicity, ref = "Serb"), data = .) %>% 
+  tidy() %>% 
+  kable()
+```
+
+
+### 7. What about the subject’s ethnicity? Does subject ethnicity affect the average allocation to recipients, ignoring recipient ethnicity? If you run this regression, the results will look strange.
+Why? Hint: Look at the value of the interept and think about what’s actually happening with the allocations in a single round of the game.
+
+On average, the subject ethnicity doesn't affect how the money amount that subjects allocate to recipients. On average, they share the amount equally between the recipients, since the intercepts in the three regressions are 5.
+
+```{r}
+data_df %>% 
+  lm(Amount ~ relevel(Subject_ethnicity,ref = "Serb"), data =.) %>% 
+  summary() %>% 
+  tidy %>% 
+  kable()
+```
+
+
+```{r}
+data_df %>% 
+  lm(Amount ~ relevel(Subject_ethnicity,ref = "Croat"), data =.) %>% 
+  summary() %>% 
+  tidy %>% 
+  kable()
+```
+
+```{r}
+data_df %>% 
+  lm(Amount ~ Subject_ethnicity, data =.) %>% 
+  summary() %>% 
+  tidy %>% 
+  kable()
+```
+
+
+### 8. Now let’s evaluate if the subject’s ethnicity affects how they allocate the money depending on the recipient’s ethnicity. Conduct a regression that interacts the recipient’s ethnicity with the subject’s ethnicity. y. Carefully interpret the results, including how much each subject ethnicity is estimated to allocate on average to every recipient ethnicity.
+
+As the reference is the Bosniak ethnicity, when the subject and the recipient are both Bosniak, recipients receive 5.71 Bosnian Marks. 
+
+When Bosniaks give money to Croat, they give -0.79 Bosnian Marks on average less than to another Bosnian. When the recipient is Serb, Bosniaks are expected to give -1.34 less than to another Bosnian.
+
+When Croats are the subject, we estimate that they give -1.27 Bosnian Marks than the intercept value(Bosniak subject and recipient). While they give 2.27 more than the intercept to another Croat and 1.50 more than the intercept to the Serbs.
+
+On average, Serb subjects give -1.11 Bosnian Mark to the Bosniak, than the Bosniak give to another Bosniak(intercept). They give 0.925 more to the Croat than the intercept value. And 2.37 than the intercept value to another Serb.
+
+|Subject/ Recipient | Bosniak (ref)|Croat | Serb |
+|:-:|---|---|---|
+|Bosniak (ref)|**5.7142857**|-0.7940403|-1.3400167|
+|Croat |-1.2681319 |2.2675945 |1.5053737  |
+|Serb |-1.1128871 |0.9250361  |2.3677572 |
+
+
+```{r}
+data_df %>% 
+  lm(Amount ~ Subject_ethnicity * Recipient_ethnicity + Subject_ethnicity + Recipient_ethnicity, 
+     data = .) %>% 
+  summary() %>% 
+  tidy %>% 
+  kable()
+```
+
+### 9. The estimates in Q8 and Q4 are different from those in Table 3 of Whitt (2014). So far we have assumed that the allocations only depend on the individual ethnicities of each recipient and not on the specific pair of recipients in each game (variable Recipient_pairing.
+
+For example, Bosniaks may have negative sentiments towards both Croats and Serbs, but what happens when they have to choose between allocating money in the specific pairing of Croats and Serbs together? How do they choose to allocate?
+
+Run a regression which includes a three-way interaction between subject ethnicity, recipient ethnicity and the pair of the recipients’ ethnicity. Compare the results to Table 3 in Whitt 2004(which just presents the averages, not the results of a regression, but should be comparable if we put in the effort to interpret our coefficients correctly).
+
+* Bosniaks as the subject:
+
+As the reference is the Bosniak ethnicity, the intercept is the expected amount that Bosniak subject will give to a Bosniak recipient. When the recipient is a Croat, this value decreases in -1.1 Marks on average, and -1.85 when it is a Serb. 
+
+When we compare how much money Bosniak give to a recipient co-ethnic, and consider the pairing, he tends to favor more his ethnicity when the other pairing is Croat x Serb (intercept +0.92, on average) than when it is Bosnjak x Serb (+0.31).
+
+Serbs receive 0.12 more Marks than the intercept value when the pairing is Bosniak x Serb.
+
+* Croats as the subject: 
+
+When the subject is a Croat, Bosniak receives, on average -1.16 Marks less than when it is a Bosniak. 
+
+Croats give 3.19 Marks more than the intercept value to his co-ethnic, this amount is 2.32 greater than the intercept when the recipient is a Serb. But when Croats are supposed to choose between a Bosniak and Serb, Bosniaks receive 0.31 more Marks than the intercept. While Serbs receive -0.44 than the intercept value when Croats are supposed to choose this pairing.
+
+When the pairing is Croat x Serb, Bosniaks receive -1.16 fewer Marks than the intercept value. Thus, we can conclude Croats tends to favor his co-ethnic, but when they are supposed to choose between Bosniak and Serb, they prefer the Bosniaks.
+
+* Serbs as the subject: 
+
+On average, Bosniak receive -0.62 Marks, when the subject is a Serb, then when is another Bosniak. Comparing, this value with the value the Croats give to the Bosniak, *ceteris paribus*, Serbs give more money to the Bosniak.
+
+But, Serbs give more money to the Croats (1.25) than the amount they give to the Bosniak. And more 3.19 Marks to their co-ethnics (3.19) than the intercept value.
+
+When we consider also the pairing group in ou analysis, we can see that Bosniaks receive more money from the Serbs, when the pairing is Bosniak x Serb (-0.92), than when is Croat x Serb (-1.57).
+
+Serbs receive -05 Marks than the intercept value, when the recipient pairing is Bosniak x Serb and the subject is also a Serb.
+
+
+|Subject/ Recipient/Paired | Bosniak (ref)|Croat | Serb | Bosnjak Serb | Croat Serb |
+|:-:|---|---|---|--- | --- |
+|Bosniak (ref)|**5.55**|-1.1 |-1.85 |0.31 |0.92|
+|Croat |- 1.16 | 3.19 |2.32|0.66  |-1.16  |
+|Serb |- 0.62 |1.25 |3.14 | -0.92  | -1.57  |
+| Bosniak Serb (Pairing) | - | - | 0.12  | - | - |
+
+
+Subject_ethnicityCroat:Recipient_ethnicitySerb:Recipient_PairingBosnjak Serb : -0.44
+
+Subject_ethnicitySerb:Recipient_ethnicitySerb:Recipient_PairingBosnjak Serb : -0.05
+
+```{r}
+data_df %>% 
+  lm(Amount ~ Subject_ethnicity * Recipient_ethnicity * Recipient_Pairing +  Subject_ethnicity + Recipient_ethnicity + Recipient_Pairing, data = .) %>% 
+  summary() %>% 
+  tidy() %>% 
+  kable()
+```
+
+10. Replicate the simple T-test from Table 3 in Whitt (2014) for the difference-in-means of allocations between the pairing of Croats and Serbs, for Bosniak subjects (the third line in Table 3). (I didn’t get the same T-statistics as in Table 3).
+
+The T-Test is statistically significant as it is greater than 2 and the p-value smaller than 0.05. Thus, we can say that Bosniak gives more money to Croats than to Serbs. We can reach the same conclusion with the regression output.
+
+```{r}
+ data_df %>% 
+  filter(Subject_ethnicity == "Bosnjak") %>% 
+filter(Recipient_ethnicity == "Croat" | Recipient_ethnicity == "Serb") %>% 
+t.test(Amount ~ Recipient_ethnicity, data = .)
+```
+
+
+11. The T-test in Q9 seems too ‘easy’ (too likely to find a significant result). The more recipient 1’s allocation increases, the smaller recipient 2’s allocation is automatically decreased (since they have to sum to 10). So all the rows in our data are not independent. As the mean allocation to one ethnicity goes up the mean to the other automatically goes down, producing a bigger ‘gap’. To correct this, we have two options, adapting the comarison in Q10 but this time either:
+
+(i) a t-test of whether the first recipient’s allocation is equal to 5,
+(ii) a paired t-test that takes into account the fact that values in the first allocation are correlated with those in the second allocation.
+
+Implement one of these two tests (they should both give the same answer). How does this change the t-statistics/p-values compared to Q10?
+
+When I specified in the t.test parameters, that the difference should be > 0.1, thus, the Croat average should be at least 5. The difference between the groups is still statistically significant, but the T-Test decreased a little (2.44).
+
+```{r}
+
+ data_df %>% 
+  filter(Subject_ethnicity == "Bosnjak") %>% 
+filter(Recipient_ethnicity == "Croat" | Recipient_ethnicity == "Serb") %>% 
+t.test(Amount ~ Recipient_ethnicity, alternative = "greater", mu = 0.1, data = .)
+```
+
+
+12. To address this same problem of dependent data in our regression from Q8, we need to cluster the standard errors for each game (every two rows in our data where the allocations sum to 10). Run the same regression as in Q8 but with clustered standard errors, and assess if it changes any of the conclusions.
+
+When I clustered the standard errors for each game, all the estimates are the same and they are still statistically significant.
+
+```{r}
+library(estimatr)
+reg_robust <- lm_robust(Amount ~ Subject_ethnicity * Recipient_ethnicity + Subject_ethnicity + Recipient_ethnicity, data = data_df, clusters = Game, se_type = "stata")
+
+tidy(reg_robust) %>% 
+  kable()
+```
+
+
+13. How much does treating other ethnicities equally in the game predict whether subjects expect other ethnic groups to treat them fairly in their survey response? Let’s try to run a similar analysis to the first column of Table 6 in the paper. Create a binary dummy variable equal_allocation indicating when the subject provides an ‘equal’ allocation (5:5), filter the data to just the ‘first’ recipient to avoid duplicating the rows, and run the logit regression of the ‘Fairness’ survey response variable on the variable equal_allocation, with controls for subject ethnicity, gender and age. Compare the result to the first column of Table 6 (it may knot be exactly the same).
+
+Treating the recipient equally increases by 46.68% of the subject expectation to be treated equally by the others.
+
+```{r}
+## creating a dummy variable
+
+func_dummy<- function(x){
+if (x == 5) {
+Amount <- 1
+}else{
+  Amount <- 0
+}
+return(Amount)
+}
+
+data_df$dummy <- sapply(data_df$Amount, func_dummy)
+
+#filter the data
+data_reg <- data_df %>% filter(Recipient == 1)
+
+## logistic regression
+data_reg %>% 
+glm(Fairness ~ dummy + Subject_ethnicity + Subject_Gender + Subject_Age, data = ., family = "binomial") %>% 
+  summary() 
+```
+

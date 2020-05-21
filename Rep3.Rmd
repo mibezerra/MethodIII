@@ -1,0 +1,1054 @@
+---
+title: "FLS 6415: Replication 3 - Natural Experiments"
+author: "Camila"
+date: "09th April, 2020"
+output: pdf_document
+---
+
+
+# FLS 6415: Replication 3 - Natural Experiments
+
+
+To be submitted (code + answers) by midnight, Wednesday 8th April.
+First read the paper by De La O (2013) on the class website.
+The replication data is in the file DelaO.csv, and the important variables are described below. Each row of
+this dataset is one electoral precinct, some of which are considered treated because they received Progresa.
+
+
+
+### 1. First, what is treatment in this study? What is control? What is the outcome being measured?
+
+Sample: Applicable families to receive the Progresa.
+
+Treatment: To receive the Progresa
+ 
+Control: DOn't receive the Progresa
+
+Treatment and Control groups have similar turnout, poverty level, and population size.
+
+Outcome: 
+* turnout
+* incumbent(PRI) vote share
+* Party vote shares for the two opposition parties PAN and PRD in 2000.
+
+
+### 2. To help assess the balance between treatment and control units, reproduce Table 2 in De La O (2013) (Don’t worry about the standard errors in brackets in the ‘Difference’ column for now).
+
+```{r message = F}
+# open libraries
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(knitr)
+library(ggthemes)
+library(Rmisc)
+library(broom)
+library(estimatr)
+library(xtable)
+```
+
+
+```{r}
+#open database
+data <- "https://jonnyphillips.github.io/Methods_III/Classes/Class_5/Replication/DeLaO.csv"
+data_df <- read.csv(data)
+```
+
+```{r,eval=F}
+# Inspecting the dataframe
+
+head(data_df)
+
+str(data_df)
+```
+
+```{r}
+# recode treatment variable
+data_df <- data_df %>% 
+  mutate(season = cut(treatment,
+                       c(-Inf, 0 , 1),
+         c("Late", "Early")))
+mean(data_df$numerotreated[data_df$villages == 1], na.rm = T)
+
+# get the averages
+data <- data_df %>% 
+  dplyr::group_by(season) %>% 
+  dplyr::summarise(Poverty = mean(avgpoverty, ra.rm = T),
+            Population = mean(pobtot1994),
+            Population_eligible = mean(pobelegiblep),
+            Number_villages = mean(villages),
+            Randomly_assigned_villages1 = mean(one_random, na.rm = T),
+            Randomly_assigned_villages2 = mean(two_random, na.rm = T),
+            Turnout = mean(t1994, na.rm = T),
+            PRI_vote_share = mean(pri1994s, na.rm = T),
+            PAN_vote_share = mean(pan1994s, na.rm = T),
+            PRD_vote_share = mean(prd1994s, na.rm = T)) 
+
+#transforming columns into rows
+data <- data %>% 
+  pivot_longer(-season, names_to = "Variables", values_to = "Value") %>% arrange(season) %>% 
+  dplyr::group_by(Variables) %>% 
+  dplyr::mutate(diff = Value[season == "Early"] - Value[season == "Late"])
+
+#transforming rows into columns
+data <- data %>% 
+  tidyr::pivot_wider(names_from = season, values_from = c(Value, diff)) %>% 
+  dplyr::select(- diff_Early)
+
+#reorder by col names
+data.table::setcolorder(data, c("Variables", "Value_Early", "Value_Late", "diff_Late"))
+
+data %>% 
+knitr::kable(col.names = c("Variables", "Early", "Late", "Diff"), digits = round(2))
+
+```
+
+
+### 3. Is the balance shown in this table (Table 2 in De La O) a necessary condition for causal inference? Is it a sufficient condition for causal inference?
+
+It's a necessary condition for causal inference, but it's not a sufficient condition for causal inference.
+
+Because in order to compare the Early and Late group, and thus, to access the treatment effect, we need this group to differ in only the absence or not of the treatment. This study is considered a natural experiment because the assignment to the treatment and control groups was random and it wasn't done by the researcher. In this case, the random assignment was done by the Mexican government.
+
+The random assignment is a necessary condition for causal inference, since, the assignment wasn't biased. Thus, the treatment and control group will differ in the treatment condition, and will probably be balanced on the other variables. In order to check if the groups are balanced in the other variable, De La O compared the Early and Late averages, and they are similar on the control variables.
+
+But it's not a sufficient condition for causal inference, we need also to consider other factors, such as a mechanism connecting the treatment and the outcome. 
+
+### 4. The main analysis in De La O is conducted on a subset of the full dataset. Filter the data so that only precincts that have either one treatment village (numerotreated) or one control village (numerocontrol) inside them are included in your new dataset. What percentage of the original precincts are included in the new dataset?
+
+```{r}
+# table(data_df$numerotreated)
+# table(data_df$numerocontrol)
+
+data_filtered <- data_df %>% 
+  dplyr::filter(numerotreated == 1 | numerocontrol == 1)
+
+View(data_filtered)
+
+# #463 rows
+# dim(data_df)
+# 
+# # 420 rows
+# dim(data_filtered)
+
+per <- round(420/463 * 100, digits = 2)
+```
+
+`r per`% of the original data was included in the filtered one.
+
+### 5. One of De La O’s conclusions is that treatment (receiving Progresa) boosts turnout. Conduct a simple difference-in-means t-test on the filtered dataset from Q4 to assess this claim.
+
+What is the estimated difference-in-means and how statistically significant is the result?
+
+The T-test above shows us that the turnout average in group 0 is 0.63 and in group 1 is 0.68. So there is a -0.045 difference in the groups’ averages. 
+
+But it's not statistically significant, since the 95%CI[-0.1; 0.01], thus the value 0 is inside it, besides p-value(0.1086) is greater than 0.05 and t-test(-1.6082) it's not smaller than -2 and nor greater than 2.
+
+
+```{r}
+## Conferir com o Jonathan qual variável usar para turnout
+
+data_filtered %>% 
+  t.test(t2000 ~ treatment, data = .)
+```
+
+
+6. De La O’s analysis of turnout is in the upper panel of Table 3, where she runs a regression, adding some controls. (We are going to focus on the ‘ITT’ estimates, we will talk about the ‘IV’ estimates next week). Replicate this turnout regression. The controls (listed under De La O’s Table 3) are avgpoverty, pobtot1994, votos_totales1994, pri1994, pan1994, prd1994 and there is a fixed effect for the villages variable. (Try to include the robust standard errors, but no problem if you cannot). Interpret the results.
+
+```{r}
+## regression with fixed effects
+model1 <- data_filtered %>% 
+lm_robust(t2000 ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata")
+
+model1 %>% 
+  summary()
+
+# model1 %>% 
+#   tidy() %>% 
+#   xtable()
+```
+
+The adjusted R^2 is 0.07088, thus, this model explains 7.08% of the variation in the turnout variable.
+
+The F-Statistic is 102.3 and its p-value is 2.41e-10, thus the betas are statistically different from each other.
+
+The treatment increased 0.0531 points the turnout variable, holding constant the control variables in the model above. But it's not statistically significant at 0.01 level since the p-value is 0.05 and the t-value is 2.16, the t-value should be considerably greater than 2 and the p-value smaller than 0.05 in order to satisfy the 0.01 threshold.
+
+It's not a very good model to explain the turnout in general, but it indicates that the Progresa has an effect on turnout in Mexico.
+
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & 0.05 & 0.02 & 2.16 & 0.05 & -0.00 & 0.11 & 13.00 & t2000 \\ 
+  2 & avgpoverty & 0.01 & 0.04 & 0.39 & 0.70 & -0.06 & 0.09 & 13.00 & t2000 \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -3.81 & 0.00 & -0.00 & -0.00 & 13.00 & t2000 \\ 
+  4 & votos\_totales1994 & -0.00 & 0.00 & -1.58 & 0.14 & -0.00 & 0.00 & 13.00 & t2000 \\ 
+  5 & pri1994 & 0.00 & 0.00 & 1.54 & 0.15 & -0.00 & 0.00 & 13.00 & t2000 \\ 
+  6 & pan1994 & 0.00 & 0.00 & 0.62 & 0.54 & -0.00 & 0.00 & 13.00 & t2000 \\ 
+  7 & prd1994 & 0.00 & 0.00 & 0.91 & 0.38 & -0.00 & 0.00 & 13.00 & t2000 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+7. Now run the same regression but exclude the number-of-villages fixed effects (keep the other controls). How does this change the comparisons we are making between treated and control villages? How do the results change?
+
+```{r}
+lm(t2000 ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = data_filtered) %>% 
+  summary()
+
+# model2 %>% 
+#   tidy() %>% 
+#   xtable()
+```
+
+This model is less strict since it's a simple multiple regression. This model also doesn't explain very much the variation in turnout, it explains 6.27% on the variation in turnout. But as we are interested in the treatment effect, I don't consider this a great issue, in this case.
+
+When the Independent Variable, "treatment", and the control variables are 0, the turnout is 0.64, which corresponds to 64%. The treatment coefficient is on average 0.045, holding constant the control variables. It means that, when some village receives the treatment, it increases the turnout in 0.045 points. 
+
+As in the regression with fixed effects, the coefficient for the treatment isn't expressive. And it's not statistically significant since its p-value is 0.15 and the t-value (1.45) is smaller than 2.
+
+
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrr}
+  \hline
+ & term & estimate & std.error & statistic & p.value \\ 
+  \hline
+1 & (Intercept) & 0.64 & 0.17 & 3.70 & 0.00 \\ 
+  2 & treatment & 0.05 & 0.03 & 1.45 & 0.15 \\ 
+  3 & avgpoverty & 0.00 & 0.04 & 0.09 & 0.93 \\ 
+  4 & pobtot1994 & -0.00 & 0.00 & -5.24 & 0.00 \\ 
+  5 & votos\_totales1994 & -0.00 & 0.00 & -0.74 & 0.46 \\ 
+  6 & pri1994 & 0.00 & 0.00 & 0.88 & 0.38 \\ 
+  7 & pan1994 & 0.00 & 0.00 & 0.45 & 0.66 \\ 
+  8 & prd1994 & 0.00 & 0.00 & 0.41 & 0.68 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+8. Replicate all four columns of the upper panel of Table 3 in De La O (2013). Interpret the results.
+
+This first model is equal to the one in exercise 6, thus I won't interpret it.
+
+```{r eval = F}
+# First part
+## regression with fixed effects
+data_df %>% 
+lm_robust(t2000 ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata") %>% 
+  summary()
+
+ # model3 %>% 
+ #   tidy() %>% 
+ #   xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & 0.05 & 0.02 & 2.21 & 0.05 & 0.00 & 0.10 & 13.00 & t2000 \\ 
+  2 & avgpoverty & 0.01 & 0.03 & 0.33 & 0.74 & -0.06 & 0.08 & 13.00 & t2000 \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -4.13 & 0.00 & -0.00 & -0.00 & 13.00 & t2000 \\ 
+  4 & votos\_totales1994 & -0.00 & 0.00 & -1.27 & 0.23 & -0.00 & 0.00 & 13.00 & t2000 \\ 
+  5 & pri1994 & 0.00 & 0.00 & 1.56 & 0.14 & -0.00 & 0.00 & 13.00 & t2000 \\ 
+  6 & pan1994 & 0.00 & 0.00 & 0.38 & 0.71 & -0.00 & 0.00 & 13.00 & t2000 \\ 
+  7 & prd1994 & 0.00 & 0.00 & 0.49 & 0.63 & -0.00 & 0.00 & 13.00 & t2000 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r}
+data_df %>% 
+lm_robust(pri2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata") %>% 
+   summary()
+
+# model4 %>% 
+#    tidy() %>% 
+#    xtable()
+```
+
+Now, the dependent variable is the percentage of votes that the  PAN Party received. This model explains 31.64% of the variation in the dependent variable. The F-statistic is statistically significant, thus, we can say that the coefficients are different from each other.
+
+The treatment coefficient isn't statistically significant at 0.05 level, because p-value(0.98) is greater than 0.05 and t-statistic (0.03) is smaller than 2.
+
+Holding constant the control variables, there isn't an effect of treatment in the votes for the PRI Party.
+
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & 0.04 & 0.01 & 4.53 & 0.00 & 0.02 & 0.05 & 13.00 & pri2000s \\ 
+  2 & avgpoverty & 0.02 & 0.01 & 1.59 & 0.14 & -0.01 & 0.06 & 13.00 & pri2000s \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -4.96 & 0.00 & -0.00 & -0.00 & 13.00 & pri2000s \\ 
+  4 & votos\_totales1994 & -0.00 & 0.00 & -1.28 & 0.22 & -0.00 & 0.00 & 13.00 & pri2000s \\ 
+  5 & pri1994 & 0.00 & 0.00 & 3.52 & 0.00 & 0.00 & 0.00 & 13.00 & pri2000s \\ 
+  6 & pan1994 & -0.00 & 0.00 & -2.23 & 0.04 & -0.00 & -0.00 & 13.00 & pri2000s \\ 
+  7 & prd1994 & -0.00 & 0.00 & -2.67 & 0.02 & -0.00 & -0.00 & 13.00 & pri2000s \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r}
+data_df %>% 
+lm_robust(pan2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata") %>% 
+   summary()
+
+ # model5 %>% 
+ #    tidy() %>% 
+ #    xtable()
+```
+
+Now, the dependent variable is the percentage of votes that the  PAN Party received. This model explains 16.78% of the variation in the dependent variable. The F-statistic is statistically significant, thus, we can say that the coefficients are different from each other.
+
+The treatment coefficient is statistically significant at 0.1 level because the p-value(0.53) is smaller than 0.1 and the t-value (0.65) is smaller than 2. Besides, the value 0 is inside the 95%CI[-0.02;0.03]. Thus, we cannot state it's statistically significant at the 0.05 level.
+
+Holding constant the control variables, the effect of treatment in the votes for the PRI Party is 0.01 on average.
+
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & 0.01 & 0.01 & 0.65 & 0.53 & -0.02 & 0.03 & 13.00 & pan2000s \\ 
+  2 & avgpoverty & -0.01 & 0.01 & -0.90 & 0.39 & -0.04 & 0.02 & 13.00 & pan2000s \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -4.31 & 0.00 & -0.00 & -0.00 & 13.00 & pan2000s \\ 
+  4 & votos\_totales1994 & -0.00 & 0.00 & -1.95 & 0.07 & -0.00 & 0.00 & 13.00 & pan2000s \\ 
+  5 & pri1994 & 0.00 & 0.00 & 2.00 & 0.07 & -0.00 & 0.00 & 13.00 & pan2000s \\ 
+  6 & pan1994 & 0.00 & 0.00 & 4.38 & 0.00 & 0.00 & 0.00 & 13.00 & pan2000s \\ 
+  7 & prd1994 & -0.00 & 0.00 & -0.96 & 0.35 & -0.00 & 0.00 & 13.00 & pan2000s \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r}
+data_df %>% 
+lm_robust(prd2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata") %>% 
+  summary()
+
+ # model6 %>% 
+ #    tidy() %>% 
+ #    xtable()
+```
+
+Now, the dependent variable is the percentage of votes that the  PRI Party received. This model explains 28.78% of the variation in the depedent variable. The F-statistic is statistically significant, thus, we can say that the coefficients are different from each other.
+
+The treatment coefficient is statistically significant at 0.01 level, because p-value(0.001) is smaller than 0.05 and t-value (4.53) is greater than 2. It happens, because although the b1 is smaller(0.036) on average, the std. Error (0.01) is very small.
+
+Holding constant the control variables, the effect of treatment in the votes for the PRI Party is on 0.036 on average.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & 0.00 & 0.01 & 0.03 & 0.98 & -0.03 & 0.03 & 13.00 & prd2000s \\ 
+  2 & avgpoverty & -0.01 & 0.01 & -0.96 & 0.36 & -0.05 & 0.02 & 13.00 & prd2000s \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -2.26 & 0.04 & -0.00 & -0.00 & 13.00 & prd2000s \\ 
+  4 & votos\_totales1994 & 0.00 & 0.00 & 1.25 & 0.23 & -0.00 & 0.00 & 13.00 & prd2000s \\ 
+  5 & pri1994 & -0.00 & 0.00 & -2.70 & 0.02 & -0.00 & -0.00 & 13.00 & prd2000s \\ 
+  6 & pan1994 & -0.00 & 0.00 & -2.10 & 0.06 & -0.00 & 0.00 & 13.00 & prd2000s \\ 
+  7 & prd1994 & 0.00 & 0.00 & 7.60 & 0.00 & 0.00 & 0.00 & 13.00 & prd2000s \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+I've already interpreted the regression model without fixed effects for turnout in exercise 7.
+
+```{r eval=F}
+# Second part
+## Without Fixed effects
+lm(t2000 ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = data_filtered) %>% 
+  summary()
+```
+
+
+```{r}
+lm(pri2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = data_filtered) %>% 
+  summary()
+
+
+```
+
+Now, the dependent variable is the percentage of votes that the  PRI Party received. This model explains 20.73% of the variation in the depedent variable. The F-statistic is statistically significant, thus, we can say that the coefficients are different from each other.
+
+The treatment coefficient isn't statistically significant at 0.05 level, because the p-value(0.087) is greater than 0.05 and t-value (1.71) isn't greater than 2. 
+
+Holding constant the control variables, the effect of treatment in the votes for the PRI Party is on 0.03 on average. 
+
+And holding constant the control and also the independent variables, the PRI Party received 38% of the votes.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrr}
+  \hline
+ & term & estimate & std.error & statistic & p.value \\ 
+  \hline
+1 & (Intercept) & 0.38 & 0.09 & 4.03 & 0.00 \\ 
+  2 & treatment & 0.03 & 0.02 & 1.72 & 0.09 \\ 
+  3 & avgpoverty & 0.01 & 0.02 & 0.28 & 0.78 \\ 
+  4 & pobtot1994 & -0.00 & 0.00 & -3.96 & 0.00 \\ 
+  5 & votos\_totales1994 & -0.00 & 0.00 & -2.16 & 0.03 \\ 
+  6 & pri1994 & 0.00 & 0.00 & 2.80 & 0.01 \\ 
+  7 & pan1994 & -0.00 & 0.00 & -1.50 & 0.13 \\ 
+  8 & prd1994 & -0.00 & 0.00 & -1.24 & 0.22 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+
+```{r}
+lm(pan2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = data_filtered) %>% 
+  summary()
+```
+
+
+Now, the dependent variable is the percentage of votes that the  PAN Party received. This model explains 13% of the variation in the depedent variable. The F-statistic is statistically significant, thus, we can say that the coefficients are different from each other.
+
+The treatment coefficient isn't statistically significant at 0.05 level, because the p-value(0.57) is greater than 0.05 and t-value (0.57) isn't greater than 2. 
+
+Holding constant the control variables, the effect of treatment in the votes for the PRI Party is on 0.01 on average. 
+
+And holding constant the control and also the independent variables, the PRI Party received 13% of the votes.
+
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrr}
+  \hline
+ & term & estimate & std.error & statistic & p.value \\ 
+  \hline
+1 & (Intercept) & 0.13 & 0.07 & 1.74 & 0.08 \\ 
+  2 & treatment & 0.01 & 0.01 & 0.57 & 0.57 \\ 
+  3 & avgpoverty & -0.00 & 0.02 & -0.25 & 0.81 \\ 
+  4 & pobtot1994 & -0.00 & 0.00 & -4.63 & 0.00 \\ 
+  5 & votos\_totales1994 & -0.00 & 0.00 & -1.09 & 0.28 \\ 
+  6 & pri1994 & 0.00 & 0.00 & 1.07 & 0.28 \\ 
+  7 & pan1994 & 0.00 & 0.00 & 5.15 & 0.00 \\ 
+  8 & prd1994 & -0.00 & 0.00 & -0.39 & 0.70 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r}
+lm(prd2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = data_filtered) %>% 
+  summary()
+```
+
+Now, the dependent variable is the percentage of votes that the  PRD Party received. This model explains 28.74% of the variation in the depedent variable. The F-statistic is statistically significant, thus, we can say that the coefficients are different from each other.
+
+The treatment coefficient isn't statistically significant at 0.05 level, because the p-value(0.87) is greater than 0.05 and t-value (0.17) isn't greater than 2. 
+
+Holding constant the control variables, the treatment hasn't an effect on the depedent variable. 
+
+And holding constant the control and also the independent variables, the PRI Party received 14% of the votes.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrr}
+  \hline
+ & term & estimate & std.error & statistic & p.value \\ 
+  \hline
+1 & (Intercept) & 0.14 & 0.07 & 2.01 & 0.05 \\ 
+  2 & treatment & 0.00 & 0.01 & 0.17 & 0.87 \\ 
+  3 & avgpoverty & -0.01 & 0.01 & -0.41 & 0.68 \\ 
+  4 & pobtot1994 & -0.00 & 0.00 & -2.17 & 0.03 \\ 
+  5 & votos\_totales1994 & 0.00 & 0.00 & 1.53 & 0.13 \\ 
+  6 & pri1994 & -0.00 & 0.00 & -2.35 & 0.02 \\ 
+  7 & pan1994 & -0.00 & 0.00 & -1.75 & 0.08 \\ 
+  8 & prd1994 & 0.00 & 0.00 & 4.19 & 0.00 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+
+
+9. Now let’s look at some critiques of the paper. Normally, we measure turnout percentages and vote shares as being naturally bounded between 0 and 100% (or 0 and 1). Other numbers don’t make sense. Use a boxplot or similar graph to assess the distribution of values on the four dependent variables. What do you find?
+ 
+As we can see in the graph below, the Votes on PRI Party has some inconsistencies, because there are some outliers greater than 1.0, it means, that in some villages the PRI Party received more than 100% of the votes. In 68% of the observations, PRI received between 30% and 50% of the votes.
+
+```{r}
+boxplot(data_filtered$pri2000s)
+```
+
+The turnout is even more inconsistent, as we can see in the graph below, there are some outlier villages that the more than 100% of the population voted.
+
+```{r}
+boxplot(data_filtered$t2000)
+```
+
+The PAN Party also received more than 100% of the vote in one village.
+
+```{r}
+boxplot(data_filtered$pan2000s)
+```
+
+The PRD Party also received more than 100% of the vote in two villages.
+
+```{r}
+boxplot(data_filtered$prd2000s)
+```
+
+10. As a ‘quick fix’ replace all the unrealistic values above 100% (1) with NA for all the turnout percentage and vote share dependent variables. Re-run your regressions from question 8. Do your conclusions change? Why might this be?
+
+In the regressions with and without fixed effects, when we replace the observations with more than 100% of the votes with missing values. The treatment effect reduces a lot and is not statistically significant. Thus, we can say that when we replace the unrealistic values, the treatment doesn't have an effect in the turnout and in the % of votes that the Mexican parties received.
+
+This might be because the unrealistic values inflate the average of the dependent variables.
+
+
+```{r}
+data_fil <- data_filtered
+```
+
+```{r eval = F}
+
+data_fil <- within(data_fil, t2000[t2000 > 1] <- NA)
+
+## With fixed effects
+data_fil %>% 
+lm_robust(t2000 ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          se_type = "stata") %>% 
+  tidy() %>% 
+  xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & 0.02 & 0.02 & 0.93 & 0.36 & -0.02 & 0.05 & 387.00 & t2000 \\ 
+  2 & avgpoverty & -0.02 & 0.02 & -0.84 & 0.40 & -0.05 & 0.02 & 387.00 & t2000 \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -3.69 & 0.00 & -0.00 & -0.00 & 387.00 & t2000 \\ 
+  4 & votos\_totales1994 & -0.00 & 0.00 & -0.10 & 0.92 & -0.00 & 0.00 & 387.00 & t2000 \\ 
+  5 & pri1994 & 0.00 & 0.00 & 0.60 & 0.55 & -0.00 & 0.00 & 387.00 & t2000 \\ 
+  6 & pan1994 & -0.00 & 0.00 & -1.06 & 0.29 & -0.00 & 0.00 & 387.00 & t2000 \\ 
+  7 & prd1994 & -0.00 & 0.00 & -0.79 & 0.43 & -0.00 & 0.00 & 387.00 & t2000 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r eval = F}
+data_fil <- within(data_fil, pri2000s[pri2000s > 1] <- NA)
+
+## With fixed effects
+data_fil %>% 
+lm_robust(pri2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata") %>% 
+  tidy() %>% 
+  xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & 0.02 & 0.01 & 1.66 & 0.12 & -0.01 & 0.04 & 13.00 & pri2000s \\ 
+  2 & avgpoverty & 0.01 & 0.02 & 0.74 & 0.47 & -0.02 & 0.05 & 13.00 & pri2000s \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -4.21 & 0.00 & -0.00 & -0.00 & 13.00 & pri2000s \\ 
+  4 & votos\_totales1994 & -0.00 & 0.00 & -1.62 & 0.13 & -0.00 & 0.00 & 13.00 & pri2000s \\ 
+  5 & pri1994 & 0.00 & 0.00 & 3.17 & 0.01 & 0.00 & 0.00 & 13.00 & pri2000s \\ 
+  6 & pan1994 & -0.00 & 0.00 & -2.51 & 0.03 & -0.00 & -0.00 & 13.00 & pri2000s \\ 
+  7 & prd1994 & -0.00 & 0.00 & -2.77 & 0.02 & -0.00 & -0.00 & 13.00 & pri2000s \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+
+```{r eval = F}
+## With fixed effects
+data_fil <- within(data_fil, pan2000s[pan2000s > 1] <- NA)
+
+data_fil %>% 
+lm_robust(pan2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata") %>% 
+  tidy() %>% 
+  xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & 0.00 & 0.01 & 0.30 & 0.77 & -0.02 & 0.03 & 13.00 & pan2000s \\ 
+  2 & avgpoverty & -0.01 & 0.01 & -0.56 & 0.59 & -0.03 & 0.02 & 13.00 & pan2000s \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -3.92 & 0.00 & -0.00 & -0.00 & 13.00 & pan2000s \\ 
+  4 & votos\_totales1994 & -0.00 & 0.00 & -2.86 & 0.01 & -0.00 & -0.00 & 13.00 & pan2000s \\ 
+  5 & pri1994 & 0.00 & 0.00 & 3.78 & 0.00 & 0.00 & 0.00 & 13.00 & pan2000s \\ 
+  6 & pan1994 & 0.00 & 0.00 & 3.82 & 0.00 & 0.00 & 0.00 & 13.00 & pan2000s \\ 
+  7 & prd1994 & -0.00 & 0.00 & -0.43 & 0.67 & -0.00 & 0.00 & 13.00 & pan2000s \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r eval = F}
+## With fixed effects
+
+data_fil <- within(data_fil, prd2000s[prd2000s > 1] <- NA)
+
+data_fil %>% 
+lm_robust(prd2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata") %>% 
+  tidy() %>% 
+  xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & 0.00 & 0.01 & 0.19 & 0.85 & -0.03 & 0.03 & 13.00 & prd2000s \\ 
+  2 & avgpoverty & -0.01 & 0.01 & -1.91 & 0.08 & -0.03 & 0.00 & 13.00 & prd2000s \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -2.16 & 0.05 & -0.00 & -0.00 & 13.00 & prd2000s \\ 
+  4 & votos\_totales1994 & 0.00 & 0.00 & 1.58 & 0.14 & -0.00 & 0.00 & 13.00 & prd2000s \\ 
+  5 & pri1994 & -0.00 & 0.00 & -2.86 & 0.01 & -0.00 & -0.00 & 13.00 & prd2000s \\ 
+  6 & pan1994 & -0.00 & 0.00 & -1.85 & 0.09 & -0.00 & 0.00 & 13.00 & prd2000s \\ 
+  7 & prd1994 & 0.00 & 0.00 & 4.18 & 0.00 & 0.00 & 0.00 & 13.00 & prd2000s \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+
+
+```{r eval = F}
+## without fixed effects
+lm(t2000 ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = data_fil) %>% 
+  tidy() %>% 
+  xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrr}
+  \hline
+ & term & estimate & std.error & statistic & p.value \\ 
+  \hline
+1 & (Intercept) & 0.78 & 0.09 & 8.26 & 0.00 \\ 
+  2 & treatment & 0.01 & 0.02 & 0.85 & 0.40 \\ 
+  3 & avgpoverty & -0.03 & 0.02 & -1.40 & 0.16 \\ 
+  4 & pobtot1994 & -0.00 & 0.00 & -8.19 & 0.00 \\ 
+  5 & votos\_totales1994 & -0.00 & 0.00 & -0.18 & 0.86 \\ 
+  6 & pri1994 & 0.00 & 0.00 & 0.47 & 0.64 \\ 
+  7 & pan1994 & -0.00 & 0.00 & -1.32 & 0.19 \\ 
+  8 & prd1994 & -0.00 & 0.00 & -0.98 & 0.33 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r eval = F}
+lm(pri2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = data_fil) %>% 
+  tidy() %>% 
+  xtable()
+```
+
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrr}
+  \hline
+ & term & estimate & std.error & statistic & p.value \\ 
+  \hline
+1 & (Intercept) & 0.44 & 0.08 & 5.73 & 0.00 \\ 
+  2 & treatment & 0.01 & 0.01 & 0.89 & 0.38 \\ 
+  3 & avgpoverty & -0.01 & 0.02 & -0.40 & 0.69 \\ 
+  4 & pobtot1994 & -0.00 & 0.00 & -4.36 & 0.00 \\ 
+  5 & votos\_totales1994 & -0.00 & 0.00 & -2.02 & 0.04 \\ 
+  6 & pri1994 & 0.00 & 0.00 & 2.60 & 0.01 \\ 
+  7 & pan1994 & -0.00 & 0.00 & -2.43 & 0.02 \\ 
+  8 & prd1994 & -0.00 & 0.00 & -2.06 & 0.04 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r eval = F}
+lm(pan2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = data_fil) %>% 
+  tidy() %>% 
+  xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrr}
+  \hline
+ & term & estimate & std.error & statistic & p.value \\ 
+  \hline
+1 & (Intercept) & 0.11 & 0.07 & 1.73 & 0.08 \\ 
+  2 & treatment & 0.00 & 0.01 & 0.31 & 0.76 \\ 
+  3 & avgpoverty & -0.00 & 0.01 & -0.06 & 0.96 \\ 
+  4 & pobtot1994 & -0.00 & 0.00 & -5.10 & 0.00 \\ 
+  5 & votos\_totales1994 & -0.00 & 0.00 & -1.36 & 0.17 \\ 
+  6 & pri1994 & 0.00 & 0.00 & 1.30 & 0.20 \\ 
+  7 & pan1994 & 0.00 & 0.00 & 6.05 & 0.00 \\ 
+  8 & prd1994 & -0.00 & 0.00 & -0.26 & 0.79 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r eval = F}
+lm(prd2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = data_fil) %>% 
+  tidy() %>% 
+  xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrr}
+  \hline
+ & term & estimate & std.error & statistic & p.value \\ 
+  \hline
+1 & (Intercept) & 0.15 & 0.06 & 2.54 & 0.01 \\ 
+  2 & treatment & 0.00 & 0.01 & 0.30 & 0.76 \\ 
+  3 & avgpoverty & -0.01 & 0.01 & -0.62 & 0.53 \\ 
+  4 & pobtot1994 & -0.00 & 0.00 & -2.30 & 0.02 \\ 
+  5 & votos\_totales1994 & 0.00 & 0.00 & 1.95 & 0.05 \\ 
+  6 & pri1994 & -0.00 & 0.00 & -2.84 & 0.00 \\ 
+  7 & pan1994 & -0.00 & 0.00 & -2.44 & 0.01 \\ 
+  8 & prd1994 & 0.00 & 0.00 & 4.30 & 0.00 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+11. Next, examine the control variable for population in 1994 (pobtot1994). Use a graph or other method to identify any extreme outliers. Extreme values of control variables are not a problem if they are balanced across treatement and control groups. But are they in this case?
+
+Identify whether the extreme outliers are in the control or treatment group.
+
+The extreme outliers are in the treatment group, as the plots below show.
+
+```{r}
+# treatment
+
+data_treated <- data_fil %>% 
+  filter(numerotreated == 1) 
+
+boxplot(data_treated$pobtot1994)
+
+#find outliers values
+out <- boxplot(data_treated$pobtot1994)$out
+
+#find outlier index position in vector
+which(data_treated$pobtot1994%in% out)
+```
+
+
+```{r}
+
+# control
+
+data_control <- data_fil %>% 
+  filter(numerocontrol == 1) 
+
+boxplot(data_control$pobtot1994)
+
+#find outliers values
+out_cont <- boxplot(data_control$pobtot1994)$out
+
+
+#find outlier index position in vector
+which(data_control$pobtot1994%in% out_cont)
+
+```
+
+
+12. Remove the extreme outliers you identified in Q9 from the dataset (the dataset before you removed the infeasible values of the dependent variables). Re-run your regressions. Do your conclusions change? Why might this be?
+
+As when we replace the unrealistic value with NA, when we remove the extreme outliers the treatment doesn't have any effect on the dependent variables. Because all the coefficients in the regressions with and without fixed effects aren't statistically significant.
+
+This might be because the extreme values overestimate the treatment variable since their majority is in the treatment group.
+
+
+```{r}
+outliers <- boxplot(data_fil$pobtot1994)$out
+
+outliers
+
+#find outlier index position in vector
+which(data_fil$pobtot1994%in% outliers)
+
+# remove outlier values
+df_fil <- data_fil %>% 
+  filter( !(data_fil$pobtot1994 %in%outliers))
+```
+
+
+```{r eval = F}
+## With fixed effects
+
+df_fil %>% 
+lm_robust(t2000 ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata") %>% 
+  tidy() %>% 
+  xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & -0.01 & 0.01 & -0.81 & 0.43 & -0.03 & 0.01 & 13.00 & t2000 \\ 
+  2 & avgpoverty & 0.00 & 0.01 & 0.40 & 0.69 & -0.02 & 0.03 & 13.00 & t2000 \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -17.69 & 0.00 & -0.00 & -0.00 & 13.00 & t2000 \\ 
+  4 & votos\_totales1994 & 0.00 & 0.00 & 5.31 & 0.00 & 0.00 & 0.00 & 13.00 & t2000 \\ 
+  5 & pri1994 & 0.00 & 0.00 & 2.06 & 0.06 & -0.00 & 0.00 & 13.00 & t2000 \\ 
+  6 & pan1994 & 0.00 & 0.00 & 1.90 & 0.08 & -0.00 & 0.00 & 13.00 & t2000 \\ 
+  7 & prd1994 & 0.00 & 0.00 & 0.74 & 0.48 & -0.00 & 0.00 & 13.00 & t2000 \\ 
+   \hline
+\end{tabular}
+\end{table}
+```{r eval = F}
+## With fixed effects
+
+df_fil %>% 
+lm_robust(pan2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata") %>% 
+  tidy() %>% 
+  xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & -0.01 & 0.01 & -0.75 & 0.47 & -0.03 & 0.02 & 13.00 & pan2000s \\ 
+  2 & avgpoverty & 0.00 & 0.01 & 0.15 & 0.88 & -0.02 & 0.03 & 13.00 & pan2000s \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -5.94 & 0.00 & -0.00 & -0.00 & 13.00 & pan2000s \\ 
+  4 & votos\_totales1994 & 0.00 & 0.00 & 0.85 & 0.41 & -0.00 & 0.00 & 13.00 & pan2000s \\ 
+  5 & pri1994 & 0.00 & 0.00 & 2.22 & 0.04 & 0.00 & 0.00 & 13.00 & pan2000s \\ 
+  6 & pan1994 & 0.00 & 0.00 & 6.91 & 0.00 & 0.00 & 0.00 & 13.00 & pan2000s \\ 
+  7 & prd1994 & -0.00 & 0.00 & -0.77 & 0.46 & -0.00 & 0.00 & 13.00 & pan2000s \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r eval = F}
+## With fixed effects
+
+df_fil %>% 
+lm_robust(pri2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata") %>% 
+  tidy() %>% 
+  xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & 0.01 & 0.01 & 0.79 & 0.44 & -0.01 & 0.03 & 13.00 & pri2000s \\ 
+  2 & avgpoverty & 0.02 & 0.01 & 1.58 & 0.14 & -0.01 & 0.06 & 13.00 & pri2000s \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -8.55 & 0.00 & -0.00 & -0.00 & 13.00 & pri2000s \\ 
+  4 & votos\_totales1994 & 0.00 & 0.00 & 0.96 & 0.36 & -0.00 & 0.00 & 13.00 & pri2000s \\ 
+  5 & pri1994 & 0.00 & 0.00 & 5.92 & 0.00 & 0.00 & 0.00 & 13.00 & pri2000s \\ 
+  6 & pan1994 & -0.00 & 0.00 & -3.17 & 0.01 & -0.00 & -0.00 & 13.00 & pri2000s \\ 
+  7 & prd1994 & -0.00 & 0.00 & -3.14 & 0.01 & -0.00 & -0.00 & 13.00 & pri2000s \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r eval = F}
+## With fixed effects
+
+df_fil %>% 
+lm_robust(prd2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = .,
+                    fixed_effects = ~ factor(villages),
+          clusters = villages, 
+          se_type = "stata") %>% 
+  tidy() %>% 
+  xtable()
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrrrrrl}
+  \hline
+ & term & estimate & std.error & statistic & p.value & conf.low & conf.high & df & outcome \\ 
+  \hline
+1 & treatment & -0.01 & 0.01 & -0.37 & 0.72 & -0.04 & 0.03 & 13.00 & prd2000s \\ 
+  2 & avgpoverty & -0.01 & 0.01 & -0.83 & 0.42 & -0.03 & 0.01 & 13.00 & prd2000s \\ 
+  3 & pobtot1994 & -0.00 & 0.00 & -4.42 & 0.00 & -0.00 & -0.00 & 13.00 & prd2000s \\ 
+  4 & votos\_totales1994 & 0.00 & 0.00 & 2.58 & 0.02 & 0.00 & 0.00 & 13.00 & prd2000s \\ 
+  5 & pri1994 & -0.00 & 0.00 & -2.26 & 0.04 & -0.00 & -0.00 & 13.00 & prd2000s \\ 
+  6 & pan1994 & -0.00 & 0.00 & -0.91 & 0.38 & -0.00 & 0.00 & 13.00 & prd2000s \\ 
+  7 & prd1994 & 0.00 & 0.00 & 4.58 & 0.00 & 0.00 & 0.00 & 13.00 & prd2000s \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r eval = F}
+## regressions without fixed effects
+lm(t2000 ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = df_fil) %>% 
+  tidy() %>% 
+  xtable()
+```
+
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrr}
+  \hline
+ & term & estimate & std.error & statistic & p.value \\ 
+  \hline
+1 & (Intercept) & 0.72 & 0.07 & 10.41 & 0.00 \\ 
+  2 & treatment & -0.01 & 0.01 & -0.77 & 0.44 \\ 
+  3 & avgpoverty & -0.00 & 0.01 & -0.22 & 0.82 \\ 
+  4 & pobtot1994 & -0.00 & 0.00 & -15.76 & 0.00 \\ 
+  5 & votos\_totales1994 & 0.00 & 0.00 & 3.21 & 0.00 \\ 
+  6 & pri1994 & 0.00 & 0.00 & 1.67 & 0.10 \\ 
+  7 & pan1994 & 0.00 & 0.00 & 0.92 & 0.36 \\ 
+  8 & prd1994 & 0.00 & 0.00 & 0.45 & 0.65 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r eval = F}
+lm(pri2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = df_fil) %>% 
+  tidy() %>% 
+  xtable
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrr}
+  \hline
+ & term & estimate & std.error & statistic & p.value \\ 
+  \hline
+1 & (Intercept) & 0.40 & 0.07 & 5.62 & 0.00 \\ 
+  2 & treatment & 0.00 & 0.01 & 0.32 & 0.75 \\ 
+  3 & avgpoverty & 0.01 & 0.01 & 0.58 & 0.56 \\ 
+  4 & pobtot1994 & -0.00 & 0.00 & -8.88 & 0.00 \\ 
+  5 & votos\_totales1994 & 0.00 & 0.00 & 0.01 & 0.99 \\ 
+  6 & pri1994 & 0.00 & 0.00 & 3.28 & 0.00 \\ 
+  7 & pan1994 & -0.00 & 0.00 & -2.42 & 0.02 \\ 
+  8 & prd1994 & -0.00 & 0.00 & -1.82 & 0.07 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+```{r}
+lm(pan2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = df_fil) %>% 
+ tidy() %>% 
+  kable()
+```
+
+
+```{r}
+lm(prd2000s ~ treatment + avgpoverty + pobtot1994 + votos_totales1994 + pri1994 + pan1994 + prd1994,
+                    data = df_fil) %>% 
+  tidy() %>% 
+  kable()
+
+```
+
+
+13. One more issue. The controls for the regressions you have conducted so far are the absolute number of votes for turnout, PRI, PAN and the PRD. But for the dependent variable, De La O is using the percentage vote share of the population. Arguably it might be more consistent to use the same measurement approach on both the left and right-hand sides of the regression.
+
+My conclusions changed because the treatment effect isn’t statistically significant anymore. Thus, my final conclusion is that the Progresa doesn't change the vote patterns in Mexico since the treatment doesn't have an impact on our dependent variables.
+
+In this case, this might be because the dependent variables and the control variables aren't on the same scale. Thus, this can inflict the regression assumptions. Especially, when we consider that the variables are normally distributed and without outliers that can overestimate or underestimate the betas. In this case, overestimate. 
+
+Because the % reduces the scale that the data are distributed, when we compare it to the absolute values. And it's even more serious when the dependent variable is in % and the conrtrol variables in absolute values. 
+
+
+```{r}
+## regressions without fixed effects
+lm(t2000 ~ treatment + avgpoverty + pobtot1994 + t1994 + pri1994s + pan1994s + prd1994s, data = data_df) %>% 
+  tidy() %>% 
+  kable()
+
+lm(pri2000s ~ treatment + avgpoverty + pobtot1994 + t1994 + pri1994s + pan1994s + prd1994s,
+                    data = data_df) %>% 
+  tidy() %>% 
+  kable()
+
+lm(pan2000s ~ treatment + avgpoverty + pobtot1994 + t1994 + pri1994s + pan1994s + prd1994s,
+                    data = data_df) %>% 
+  tidy() %>% 
+  kable()
+
+lm(prd2000s ~ treatment + avgpoverty + pobtot1994 + t1994 + pri1994s + pan1994s + prd1994s,
+                    data = data_df) %>% 
+  tidy() %>% 
+  kable()
+```
+
+
+

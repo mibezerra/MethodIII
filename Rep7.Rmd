@@ -1,0 +1,649 @@
+---
+title: "FLS 6415: Replication 8 - Matching"
+author: "Camila Bezerra"
+date: "14th May, 2020"
+output: pdf_document
+---
+
+
+# FLS 6415: Replication 8 - Matching
+
+```{r message = F}
+# open libraries
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(knitr)
+library(ggthemes)
+library(Rmisc)
+library(estimatr)
+library(texreg)
+library(MASS)
+library(rms)
+library(MatchIt)
+```
+
+
+```{r}
+# abrir df
+df <- read.csv("https://jonnyphillips.github.io/Methods_III/Classes/Class_10/Replication/Boas_Hidalgo.csv", sep = ",")
+```
+
+
+First read the paper by Boas and Hidalgo (2011) on the course website. For this replication we will focus on the second half of their paper, not the initial RDD but the matching analysis of how possession of a radio licence affects the mayor’s vote share in the next election.
+
+The replication data is in the file Boas_Hidalgo.csv. A list of the most important variables is also provided below.
+
+1. What is treatment? What is control? What is the outcome?
+
+Matching aims to reach balance in covariates which affect the outcome and treatment assignment.
+
+Treatment group: candidates who received a broadcasting license before election, then the radio station can operate legally during elections.
+
+Control group: candidates who have their license for a community radio denied in municipalities. 
+
+Other candidates who aren't neither in the treatment and control groups were excluded from the match analysis.
+
+Outcome: politician's electoral prospects (BOAS & HIDALGO)
+
+2. Why do Boas and Hidalgo not use an experiment or natural experiment to estimate the effect of possessing a radio licence?
+
+Because getting a local radio license is not "as if" random. The ones who get the license are different from the ones that didn't get, since technical and political criteria influence directly who get the radio license.
+
+3. Conduct and interpret a basic linear regression of the outcome on treatment with no controls.
+
+This model explains 1% of the The councillor’s vote share in the 2004 elections variation. 
+
+The boxplot shows the vote share in the 2004 by treatment and control group. They're similar. In the regression output we can see that candidates receive 2.30 of the vote share  on average, when they're in the control group (pctVV|treat = 0). When they're in the treatment group, the vote share increase 0.45 (pctVV|treat = 1), this coefficient is statistically significant on 0.001 level.
+
+
+```{r}
+boxplot(pctVV ~ treat, data = df)
+```
+
+
+
+```{r, eval=FALSE}
+df %>% 
+  lm(pctVV ~ treat, data = .) %>% 
+  texreg(caption = "Q3: Basic Regression")
+```
+
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept) & $2.30^{***}$ \\
+            & $(0.06)$     \\
+treat       & $0.45^{***}$ \\
+            & $(0.14)$     \\
+\hline
+R$^2$       & 0.01         \\
+Adj. R$^2$  & 0.01         \\
+Num. obs.   & 1455         \\
+RMSE        & 2.14         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q3: Basic Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+4. One potential confounding variable is gender (this could affect the chances of an application being approved if there is bias in the Ministry, and the candidate’s vote share if there is bias among voters). Is there balance across control and treatment groups on the male variable?
+
+I performed a ttest in order to check if the treatment and control groups are balanced on the male variable. The difference between the two groups are statistically significant on 0.05 level, on the other hand, the difference isn't substantive, it's of two decimal points.
+
+```{r}
+t.test(treat ~ male, data = df) %>% 
+  tidy() %>% 
+  kable()
+```
+
+
+
+5. One way of controlling for gender is to add it as a control variable to your regression in Q3. Interpret the result.
+
+The candidate being male has a 0.17 positive effect, but it isn't statistically significant. The treat coefficient is the same as in the previous regression.
+
+```{r, eval = FALSE}
+df %>% 
+  lm(pctVV ~ treat + male, data = .) %>% 
+  texreg(caption = "Q4: Multivariate Regression")
+```
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept) & $2.14^{***}$ \\
+            & $(0.17)$     \\
+treat       & $0.45^{**}$  \\
+            & $(0.14)$     \\
+male        & $0.17$       \\
+            & $(0.18)$     \\
+\hline
+R$^2$       & 0.01         \\
+Adj. R$^2$  & 0.01         \\
+Num. obs.   & 1455         \\
+RMSE        & 2.14         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q4: Multivariate Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+
+
+6. An alternative approach is to use matching. Let’s try to do one-to-one exact matching on gender manually. There are 311 treated units but 1144 control units in your data, so one-toone matching means throwing away 833 control units.
+
+(a) Split your data into four different datasets: treated males, treated females, control males and control females;
+
+```{r}
+
+# treated males
+df_tm <- df %>% 
+  filter(treat == 1 & male == 1)
+
+# print number of rows
+dim(df_tm)[1]
+
+
+# treated females
+df_tf <- df %>% 
+  filter(treat == 1 & male == 0)
+
+# print number of rows
+dim(df_tf)[1]
+
+# control males
+df_cm <- df %>% 
+  filter(treat == 0 & male == 1)
+
+# print number of rows
+dim(df_cm)[1]
+
+# control females
+df_cf <- df %>% 
+  filter(treat == 0 & male == 0)
+
+# print number of rows
+dim(df_cf)[1]
+```
+
+
+
+(b) How many treated males do you have? Reduce your dataset of control males so you have only the same number as the number of treated males - since they are exactly matched on gender it doesn’t matter which you pick so choose which ones to keep/drop randomly;
+
+```{r}
+#treated male
+dim(df_tm)[1]
+
+# control male
+dim(df_cm)[1]
+
+indices <- sample(1:nrow(df_cm), 288)
+
+df_cm <- df_cm[indices, ]
+
+dim(df_cm)[1]
+```
+
+
+(c) Do the same for control females - reduce the number of control females to the same as the number of treated females;
+
+```{r}
+# treated female
+dim(df_tf)[1]
+
+# control female
+dim(df_cf)[1]
+
+indices1 <- sample(1:nrow(df_cf), 23)
+
+df_cf <- df_cf[indices1, ]
+
+dim(df_cf)
+```
+
+
+(d) Join your four datasets back together to make one dataset (this will be smaller than the original dataset as we threw some data away);
+
+```{r}
+# join the datasets
+df1 <- bind_rows(df_tm, df_cm, df_tf, df_cf)
+
+# print the nubers of rows
+dim(df1)[1]
+```
+
+
+(e) Check for balance in gender on the new dataset - it should be perfectly balanced, right?
+
+Through the t-test below we can assure that the treat is balanced on gender. Because they aren't statistically different. Since, their averages are equal.
+
+```{r}
+df1 %>% 
+  t.test(treat ~ male, data = .) %>% 
+  tidy() %>% 
+  kable()
+```
+
+
+7. Using the matched dataset from Q6, conduct two analyses of the difference in outcomes between treated and control groups. One using a difference-in-means t-test and one using a simple linear regression. Interpret the results.
+
+A diferença entre a média da parte dos votos (0,07) nos grupos de tratamento e controle não é estatisticamente significativa no nível 0,05.
+
+```{r}
+#t-test
+df1 %>% 
+  t.test(pctVV ~ treat, data = .) %>% 
+  tidy() %>% 
+  kable()
+```
+
+When we use the matched dataset, the treat effect on pctVV isn't statistically significant anymore. Thus, considering the regression and t-test output, we cannot affirm that the treatment group performs better than the control one.
+
+```{r, eval = F}
+df1 %>% 
+  lm(pctVV ~treat, data = .) %>% 
+  texreg(caption = "Q7: Bivariate Regression")
+```
+
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept) & $2.82^{***}$ \\
+            & $(0.13)$     \\
+treat       & $-0.07$      \\
+            & $(0.18)$     \\
+\hline
+R$^2$       & 0.00         \\
+Adj. R$^2$  & -0.00        \\
+Num. obs.   & 622          \\
+RMSE        & 2.28         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q7: Bivariate Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+
+8. To match on continuous or multiple variables it’s easier to use matchit.
+
+(a) Return to your original full dataset and, using nearest neighbour matching, match only on the size of the electorate (log.valid.votes).
+
+```{r}
+df %>% 
+  matchit(treat ~ log.valid.votes, data = ., method = "nearest") 
+```
+
+
+
+(b) How many units are matched? Why this number?
+
+311 units are matched, because they are the numbers of control units matched with the treated group. Thus, the number of matched units is equal to the number of rows in the treated group.
+
+(c) Conduct a simple balance t-test on the size of the electorate for the full dataset and for your matched dataset (you can recover it with match.data(output_of_matchit)). How does balance change after matching?
+
+Before matching, the treat and control groups aren't balanced on log.valid.votes, since the difference between then (0.19) is statistically significant on 0.05 level. On the other hand, when we match the units, the difference isn't statistically significant on 0.05 level anymore.
+
+```{r}
+# full dataset
+
+df %>% 
+  t.test(log.valid.votes ~treat, data = .) %>% 
+  tidy() %>% 
+  kable()
+```
+
+
+```{r}
+## matched data
+
+df3 <- df %>% 
+  matchit(treat ~ log.valid.votes, data = ., method = "nearest") %>%
+  match.data() 
+  
+df3 %>%  
+  t.test(log.valid.votes ~ treat, data = .) %>% 
+  tidy() %>% 
+  kable()
+```
+
+9. Let’s see which units were dropped by our matching method in Q8. For the full (unmatched) dataset, create a graph of the size of the electorate against the outcome variable. Colour the points according to treatment status. Make this layer semi-transparent (adjust the ‘alpha’ of your graph in R) if you can so we can see all the points. Finally, add another layer to your graph showing the same variables for the matched data but with a different shape so we can distinguish them.
+
+What does this graph tell you about which units were matched?
+
+The units that were matched are around 8 and 15 on log valid votes. They're in less quantity than in the original dataset. The treat and control variable seems to be balanced on log valid votes in the matched dataset.
+
+```{r}
+## graph
+
+ggplot() +
+  geom_point(aes(x = df$log.valid.votes, y = df$pctVV, color = df$treat, alpha = 0.5)) +
+  geom_point(aes(x = df3$log.valid.votes, y = df3$pctVV, color = df3$treat, alpha = 0.9))+
+  ylab("pctVV") +
+  xlab("log.valid.votes")
+```
+
+
+10. Using the matched dataset from Q8, conduct two analyses of the difference in outcomes between treated and control groups. One using a difference-in-means t-test and one using a simple linear regression. Interpret the results.
+
+The difference between then (-0.23) isn't statistically significant on 0.05 level, thus we cannot affirm that the treatment and control groups perform differently on the share of vote (pctVV). Besides, the regression output shows that the treat coefficient isn't statistically significant on 0.05 level.
+
+```{r}
+df3 %>%  
+  t.test(pctVV ~ treat, data = .) %>% 
+  tidy() %>% 
+  kable()
+```
+
+
+```{r, eval = F}
+df3 %>%  
+  lm(pctVV ~ treat, data = .) %>% 
+  texreg(caption = "Q10: Bivariate Regression") 
+```
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept) & $2.54^{***}$ \\
+            & $(0.13)$     \\
+treat       & $0.21$       \\
+            & $(0.18)$     \\
+\hline
+R$^2$       & 0.00         \\
+Adj. R$^2$  & 0.00         \\
+Num. obs.   & 622          \\
+RMSE        & 2.26         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q10: Bivariate Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+11. Now let’s include all of the matching variables that Boas and Hidalgo use, and use nearest neighbour matching in matchit to construct a matched dataset. Use the list of matching variables provided below to conduct nearest neighbour matching.
+
+```{r}
+## matched data
+df4 <- df %>% 
+  matchit(treat ~ log.valid.votes + occBlue.collar + occEducation + occGovernment + occMedia + occNone + occOther + occPolitician + occWhite.collar + lat + long + ran.prior + incumbent + log.valid.votes + party.prior.pctVV + prior.pctVV + elec.year + match.partyPCB + match.partyPC.do.B + match.partyPDT + match.partyPFL + match.partyPL +  match.partyPMDB + match.partyPMN + match.partyPP + match.partyPPS + match.partyPSB + match.partyPSC + match.partyPSDB + match.partyPSDC + match.partyPSL + match.partyPT + match.partyPTB + match.partyPV + uf.rs + uf.sp + yob + eduMore.than.Primary..Less.than.Superior + eduSome.Superior.or.More + log.total.assets + pt_pres_1998 + psdb_2000 + hdi_2000 + income_2000 + log.num.apps, data = ., method = "nearest") %>%
+  match.data() 
+
+perc <- dim(df4)[1]/dim(df)[1] * 100
+```
+
+
+ “occEducation”, “occGovernment”, “occMedia”, “occNone”, “occOther”, “occPolitician”, “occWhite.collar”, “lat”, “long”, “ran.prior”, “incumbent”, “log.valid.votes”, “party.prior.pctVV”, “prior.pctVV”,
+“elec.year”, “match.partyPCB”, “match.partyPC.do.B”, “match.partyPDT”, “match.partyPFL”,
+“match.partyPL”, “match.partyPMDB”, “match.partyPMN”, “match.partyPP”, “match.partyPPS”,
+“match.partyPSB”, “match.partyPSC”, “match.partyPSDB”, “match.partyPSDC”, “match.partyPSL”,
+“match.partyPT”, “match.partyPTB”, “match.partyPV”, “uf.rs”, “uf.sp”, “yob”, “eduMore.than.Primary..Less.than.Superior”,
+“eduSome.Superior.or.More”, “log.total.assets”, “pt_pres_1998”, “psdb_2000”, “hdi_2000”, “income_2000”,
+“log.num.apps”
+
+The new matched dataset has `r perc` % of the original dataset.
+
+12. Using your matched dataset from Q11, conduct a simple linear regression of the outcome on treatment. Interpret the results and compare them to the result in the first column of Table 4 in Boas and Hidalgo (2011) (it probably won’t be the same, see the next questions).
+
+The treat coefficient isn't statistically significant on 0.05 level. On the other hand, the treat coefficient of Table 4 in Boas and Hidalgo (2011) is statistically significant on 0.05 level and tends to be greater than in this replication output.
+
+```{r, eval = F}
+df4 %>% 
+  lm(pctVV ~ treat, data = .) %>% 
+  texreg(caption = "Q12: Linear Regression")
+```
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept) & $2.59^{***}$ \\
+            & $(0.13)$     \\
+treat       & $0.15$       \\
+            & $(0.18)$     \\
+\hline
+R$^2$       & 0.00         \\
+Adj. R$^2$  & -0.00        \\
+Num. obs.   & 622          \\
+RMSE        & 2.22         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q12: Linear Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+13. With lots of variables it’s impossible to get perfect balance on all variables, there are just too many dimensions and too few units. One option to control for ‘residual confounding’ is to include the matching variables as control variables in our analysis regression. How does this change your estimated treatment effect from Q12?
+
+The coefficient is only 0.03 greater and isn't statistically significant on 0.05 level.
+
+```{r, eval = F}
+df4 %>% 
+  lm(pctVV ~ treat + log.valid.votes + occBlue.collar + occEducation + occGovernment + occMedia + occNone + occOther + occPolitician + occWhite.collar + lat + long + ran.prior + incumbent + log.valid.votes + party.prior.pctVV + prior.pctVV + elec.year + match.partyPCB + match.partyPC.do.B + match.partyPDT + match.partyPFL + match.partyPL +  match.partyPMDB + match.partyPMN + match.partyPP + match.partyPPS + match.partyPSB + match.partyPSC + match.partyPSDB + match.partyPSDC + match.partyPSL + match.partyPT + match.partyPTB + match.partyPV + uf.rs + uf.sp + yob + eduMore.than.Primary..Less.than.Superior + eduSome.Superior.or.More + log.total.assets + pt_pres_1998 + psdb_2000 + hdi_2000 + income_2000 + log.num.apps, data = .) %>% 
+  texreg(caption = "Q13: Multivariate Regression")
+```
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept)                              & $-45.12$      \\
+                                         & $(122.58)$    \\
+treat                                    & $0.18$        \\
+                                         & $(0.14)$      \\
+log.valid.votes                          & $-0.53^{***}$ \\
+                                         & $(0.09)$      \\
+occBlue.collar                           & $0.28$        \\
+                                         & $(0.42)$      \\
+occEducation                             & $0.40$        \\
+                                         & $(0.42)$      \\
+occGovernment                            & $0.13$        \\
+                                         & $(0.38)$      \\
+occMedia                                 & $0.01$        \\
+                                         & $(0.42)$      \\
+occNone                                  & $0.22$        \\
+                                         & $(0.49)$      \\
+occOther                                 & $0.37$        \\
+                                         & $(0.37)$      \\
+occPolitician                            & $0.57$        \\
+                                         & $(0.45)$      \\
+occWhite.collar                          & $0.54$        \\
+                                         & $(0.35)$      \\
+lat                                      & $0.03^{*}$    \\
+                                         & $(0.01)$      \\
+long                                     & $0.01$        \\
+                                         & $(0.01)$      \\
+ran.prior                                & $-0.87^{***}$ \\
+                                         & $(0.21)$      \\
+incumbent                                & $-0.49$       \\
+                                         & $(0.29)$      \\
+party.prior.pctVV                        & $0.01$        \\
+                                         & $(0.01)$      \\
+prior.pctVV                              & $0.51^{***}$  \\
+                                         & $(0.06)$      \\
+elec.year                                & $0.01$        \\
+                                         & $(0.06)$      \\
+match.partyPC.do.B                       & $0.85$        \\
+                                         & $(0.58)$      \\
+match.partyPDT                           & $-0.14$       \\
+                                         & $(0.33)$      \\
+match.partyPFL                           & $0.65$        \\
+                                         & $(0.38)$      \\
+match.partyPL                            & $0.39$        \\
+                                         & $(0.44)$      \\
+match.partyPMDB                          & $0.86^{*}$    \\
+                                         & $(0.35)$      \\
+match.partyPMN                           & $-0.91$       \\
+                                         & $(0.66)$      \\
+match.partyPP                            & $0.58$        \\
+                                         & $(0.35)$      \\
+match.partyPPS                           & $0.45$        \\
+                                         & $(0.45)$      \\
+match.partyPSB                           & $0.64$        \\
+                                         & $(0.39)$      \\
+match.partyPSC                           & $0.37$        \\
+                                         & $(0.41)$      \\
+match.partyPSDB                          & $0.12$        \\
+                                         & $(0.31)$      \\
+match.partyPSDC                          & $0.33$        \\
+                                         & $(0.70)$      \\
+match.partyPSL                           & $0.08$        \\
+                                         & $(0.75)$      \\
+match.partyPT                            & $-0.05$       \\
+                                         & $(0.29)$      \\
+match.partyPTB                           & $0.49$        \\
+                                         & $(0.33)$      \\
+match.partyPV                            & $0.58$        \\
+                                         & $(0.56)$      \\
+uf.rs                                    & $-0.64$       \\
+                                         & $(0.61)$      \\
+uf.sp                                    & $-0.09$       \\
+                                         & $(0.25)$      \\
+yob                                      & $0.02^{*}$    \\
+                                         & $(0.01)$      \\
+eduMore.than.Primary..Less.than.Superior & $0.23$        \\
+                                         & $(0.21)$      \\
+eduSome.Superior.or.More                 & $0.84^{***}$  \\
+                                         & $(0.24)$      \\
+log.total.assets                         & $0.03$        \\
+                                         & $(0.02)$      \\
+pt\_pres\_1998                           & $0.63$        \\
+                                         & $(1.13)$      \\
+psdb\_2000                               & $-0.62$       \\
+                                         & $(0.42)$      \\
+hdi\_2000                                & $2.06$        \\
+                                         & $(2.39)$      \\
+income\_2000                             & $-0.00$       \\
+                                         & $(0.00)$      \\
+log.num.apps                             & $-0.13$       \\
+                                         & $(0.17)$      \\
+\hline
+R$^2$                                    & 0.43          \\
+Adj. R$^2$                               & 0.38          \\
+Num. obs.                                & 622           \\
+RMSE                                     & 1.74          \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q13: Multivariate Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+14. One risk with nearest-neighbour matching is that the control unit can still be far away from the treated unit if there are no good matches. Re-run the matching process from Q11 but with a caliper of 0.01 standard deviations, and then re-run the regression from Q12 (no controls). How does the number of units and the result change?
+
+```{r}
+df5 <- df %>% 
+  matchit(treat ~ log.valid.votes + occBlue.collar + occEducation + occGovernment + occMedia + occNone + occOther + occPolitician + occWhite.collar + lat + long + ran.prior + incumbent + log.valid.votes + party.prior.pctVV + prior.pctVV + elec.year + match.partyPCB + match.partyPC.do.B + match.partyPDT + match.partyPFL + match.partyPL +  match.partyPMDB + match.partyPMN + match.partyPP + match.partyPPS + match.partyPSB + match.partyPSC + match.partyPSDB + match.partyPSDC + match.partyPSL + match.partyPT + match.partyPTB + match.partyPV + uf.rs + uf.sp + yob + eduMore.than.Primary..Less.than.Superior + eduSome.Superior.or.More + log.total.assets + pt_pres_1998 + psdb_2000 + hdi_2000 + income_2000 + log.num.apps, data = ., method = "nearest", caliper = 0.01) %>%
+  match.data() 
+```
+
+
+```{r}
+diff <- dim(df5)[1]/dim(df4)[1] * 100
+diff1 <- dim(df5)[1]/dim(df)[1] * 100
+```
+
+This dataset has `r diff`% of the question 11 dataset and `r diff1` % of the original dataset.
+
+The treat coefficient is a little greater than in the question 12, but the difference isn't statistically significant. And this coefficient isn't statistically significant on 0.05 level.
+
+```{r, eval = F}
+df5 %>% 
+  lm(pctVV ~ treat, data = .) %>% 
+  texreg(caption = "Q14: Multivariate Regression")
+```
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept) & $2.53^{***}$ \\
+            & $(0.15)$     \\
+treat       & $0.37$       \\
+            & $(0.21)$     \\
+\hline
+R$^2$       & 0.01         \\
+Adj. R$^2$  & 0.00         \\
+Num. obs.   & 490          \\
+RMSE        & 2.28         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q14: Multivariate Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+15. Another problem with nearest neighbour matching is that it is ‘greedy’ - the first matches might make it harder to match well later. Boas and Hidalgo use genetic matching, which is a complex automated process to try and get the best ‘overall’ matches for the full dataset.
+
+Run genetic matching process with the same variables and then run your regression (with no controls) again. Note: Genetic matching might take 10-20 minutes.
+
+When we change the method to genetic to get the matched data and re-run the regression, the coefficient treat (0.33) on the share of votes is still not statistically significant on 0.05 level. 
+
+```{r message = F, warning= F,results= F}
+library(rgenoud)
+
+df6 <- df %>% 
+  matchit(treat ~ log.valid.votes + occBlue.collar + occEducation + occGovernment + occMedia + occNone + occOther + occPolitician + occWhite.collar + lat + long + ran.prior + incumbent + log.valid.votes + party.prior.pctVV + prior.pctVV + elec.year + match.partyPCB + match.partyPC.do.B + match.partyPDT + match.partyPFL + match.partyPL +  match.partyPMDB + match.partyPMN + match.partyPP + match.partyPPS + match.partyPSB + match.partyPSC + match.partyPSDB + match.partyPSDC + match.partyPSL + match.partyPT + match.partyPTB + match.partyPV + uf.rs + uf.sp + yob + eduMore.than.Primary..Less.than.Superior + eduSome.Superior.or.More + log.total.assets + pt_pres_1998 + psdb_2000 + hdi_2000 + income_2000 + log.num.apps, data = ., method = "genetic") %>%
+  match.data() 
+```
+
+```{r, eval = F}
+df6 %>% 
+  lm(pctVV ~ treat, data = .) %>% 
+  texreg(caption = "Q15: Multivariate Regression")
+```
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept) & $2.42^{***}$ \\
+            & $(0.14)$     \\
+treat       & $0.33$       \\
+            & $(0.19)$     \\
+\hline
+R$^2$       & 0.01         \\
+Adj. R$^2$  & 0.00         \\
+Num. obs.   & 544          \\
+RMSE        & 2.19         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q15: Multivariate Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}

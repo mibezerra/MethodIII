@@ -1,0 +1,479 @@
+---
+title: "FLS 6415: Replication 5 - Discontinuities"
+author: "Camila Bezerra"
+date: "29th April, 2020"
+output: pdf_document
+---
+
+
+# FLS 6415: Replication 5 - Discontinuities
+
+```{r message = F}
+# open libraries
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(knitr)
+library(ggthemes)
+library(Rmisc)
+library(estimatr)
+library(texreg)
+```
+
+
+FLS 6415: Replication 6 - Difference-in-Differences
+
+
+To be submitted (code + answers) by midnight, Wednesday 30th April.
+First read the paper by Malesky et al (2014) on the course website.
+The replication data is in the files Vietnam0810.csv (for the main analysis) and Vietnam0608.csv (at the end of the exercise).
+
+1. What is treatment and control in this study? What is the treatment assignment mechanism?
+
+The treatment is being recentralized. 10 provinces were assigned to the treatment group.
+
+The 53 nonselected provinces were assigned to the treatment group. Thus it's not to be recentralized.
+
+The provinces weren't randomly assigned to each group, instead, it was done by a stratified technique, the criteria were the region, urban x rural, whether the province in the international border region, previous socioeconomic and quality of public administration.
+
+
+2. Run the ‘naive’ cross-sectional OLS regression of the infrastructure index (one of the 6 presented in Table 3 of Malesky et al) on treatment. How do you interpret the results?
+
+Provide at least one specific reason why the treatment effect in your regression may be a biased estimate.
+
+```{r}
+link0810 <- "https://jonnyphillips.github.io/Methods_III/Classes/Class_8/Replication/Vietnam0810.csv"
+
+df <- read.csv(link0810, sep = ,)
+```
+
+This regression model is estimating the effect of being treated on infrastructure. So it's estimating the differences between the provinces that were treated and the control group. According to the regression estimates, the being treated doesn't explain the infrastructure index. Its coefficient is negative, -0.053, and isn't statistically significant.
+
+Although the regression results don't indicate that there is a relation between infrastructure and treatment. We need to investigate this relation more profoundly, as the provinces weren't random assigned, the treatment and control groups can have different index infrastructures before the treatment. Thus, this regression isn't capturing the change due to the treatment.
+
+
+
+```{r}
+model1 <- df %>% 
+  lm(index_infra ~treatment, data = .)
+
+#texreg(model1, include.ci = F, digits = 3, caption = "Q2: Bivariate Regression")
+```
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept) & $3.205^{***}$ \\
+            & $(0.018)$     \\
+treatment   & $-0.053$      \\
+            & $(0.049)$     \\
+\hline
+R$^2$       & 0.000         \\
+Adj. R$^2$  & 0.000         \\
+Num. obs.   & 4129          \\
+RMSE        & 1.059         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q2: Bivariate Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+3. Run the ‘naive’ before-after OLS regression of the infrastructure index on the time variable (1 for 2010, 0 for 2008) for the treated units only. How do you interpret the results? Provide at least one specific reason why the treatment effect in your regression may be a biased estimate.
+
+The time variable refers to the survey results. As the treatment was conducted in 2009, 2008 is the year before the treatment and 2010 the year after. Thus the difference in differences is measured between these two years.
+
+In this regression, we're estimating the index_infrastructure  difference within the provinces that were treated. When the year is 2008 the infrastructure index is equal to 2.9 and is statistically significant. When it's 2010, this index increases 0.5 points and is statistically significant.
+
+Thus, there is an improvement in infrastructure across the years within the provinces that were treated. But, as we're regressing only the treated observations, we cannot assure this effect is due to the treatment or another variation in the time that affects the treatment and control group.
+
+
+```{r}
+model2 <- df %>%
+  filter(treatment == 1) %>% 
+  lm(index_infra ~ time, data = .)
+
+#texreg(model2, include.ci = F, digits = 3, caption = "Q3: Logistic Regression")
+```
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept) & $2.898^{***}$ \\
+            & $(0.067)$     \\
+time        & $0.490^{***}$ \\
+            & $(0.093)$     \\
+\hline
+R$^2$       & 0.050         \\
+Adj. R$^2$  & 0.048         \\
+Num. obs.   & 528           \\
+RMSE        & 1.070         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q3: Logistic Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+
+4. Now perform the main Difference-in-differences analysis for the Infrastructure Index outcome. Don’t cluster your standard errors or include any control variables yet. Interpret the results.
+
+Through this regression model we're estimating the variation within and between the provinces.
+
+The interaction coefficient is the diff-in-diff, it's 0.249 and statistically significant on 0.05 level. Thus, when the province is treated and is a year after the treatment, the infrastructure index increases in 0.25 points on average.
+
+When a province is in the control group and the treatment wasn't conducted yet(year = 2008), the infrastructure index is 3.086 on average. If it's in the treatment group and wasn't treated the index is -0.188 smaller than the control group.
+
+When a province is in the control group and the treatment has already been conducted, the infrastructure index is 0.241 greater than in 2008. The difference between the time and treatment:time isn't statistically significant, because their 95%CI interpolates. So, we cannot assure the treatment has an effect on index_infra.
+
+This result can be due to the lack of randomized assigned, since the treatment and control groups are different on baseline index_infrastructure, as the treatment coefficient shows.
+
+
+
+```{r}
+model3 <- df %>% 
+  lm(index_infra ~ treatment + time + treatment*time, data = .)
+
+#texreg(model3, include.ci = TRUE, digits = 3, caption = "Q3: Bivariate Regression")
+```
+
+```{r}
+confint(model3) %>% 
+  kable(caption = "Model 3 95%CI")
+```
+
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept)    & $3.086^{***}$ \\
+               & $(0.025)$     \\
+treatment      & $-0.188^{**}$ \\
+               & $(0.070)$     \\
+time           & $0.241^{***}$ \\
+               & $(0.035)$     \\
+treatment:time & $0.249^{*}$   \\
+               & $(0.098)$     \\
+\hline
+R$^2$          & 0.018         \\
+Adj. R$^2$     & 0.018         \\
+Num. obs.      & 4129          \\
+RMSE           & 1.049         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q4: Diff-in-Diff}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+5. Repeat Q4 but now add the control variables (lnarea,lnpopden,city, and Region fixed effects) used in Table 3 of Malesky et al. Compare your answers to those in Table 3 of the paper.
+
+When we add the control variables, the intercept is statistically significant form the previous regression. But the other estimates don't, as the regressions 95% CI interpolate. But they tend to decrease on average.
+
+My regression estimates are very similar to the one in Table 3 of Malesky et al. since, their 95% CI interpolate, the difference isn't statistically different.
+
+
+
+```{r}
+model4 <- df %>% 
+  lm(index_infra ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = .)
+
+#texreg(list(model3, model4), include.ci = F, digits = 3, caption = "Q5: Multivariate Regression")
+
+```
+
+```{r}
+confint(model4) %>% 
+  kable(caption = "Model 4 95%CI")
+```
+
+ 
+\begin{table}
+\begin{center}
+\begin{tabular}{l c c }
+\hline
+ & Model 1 & Model 2 \\
+\hline
+(Intercept)    & $3.086^{***}$ & $1.119^{***}$  \\
+               & $(0.025)$     & $(0.228)$      \\
+treatment      & $-0.188^{**}$ & $-0.240^{***}$ \\
+               & $(0.070)$     & $(0.069)$      \\
+time           & $0.241^{***}$ & $0.230^{***}$  \\
+               & $(0.035)$     & $(0.034)$      \\
+treatment:time & $0.249^{*}$   & $0.227^{*}$    \\
+               & $(0.098)$     & $(0.095)$      \\
+lnarea         &               & $0.185^{***}$  \\
+               &               & $(0.038)$      \\
+lnpopden       &               & $0.299^{***}$  \\
+               &               & $(0.030)$      \\
+city           &               & $0.111$        \\
+               &               & $(0.065)$      \\
+Region         &               & $0.018^{*}$    \\
+               &               & $(0.007)$      \\
+\hline
+R$^2$          & 0.018         & 0.069          \\
+Adj. R$^2$     & 0.018         & 0.068          \\
+Num. obs.      & 4129          & 4126           \\
+RMSE           & 1.049         & 1.022          \\
+\hline
+\multicolumn{3}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q5: Multivariate Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+6. Repeat Q5 but now with clustered standard errors at the District level. How does this alter your results?
+
+The treatment and treatment:time coefficients aren't statistically significant anymore when we add clustered standard errors at the District level.
+
+```{r}
+#clustered standard error
+model5 <- df %>% 
+  lm_robust(index_infra ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+#texreg(list(model4, model5), include.ci = F, digits = 3, caption = "Q6: Robust Regression")
+```
+
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c c }
+\hline
+ & Model 1 & Model 2 \\
+\hline
+(Intercept)    & $1.119^{***}$  & $1.119^{**}$  \\
+               & $(0.228)$      & $(0.387)$     \\
+treatment      & $-0.240^{***}$ & $-0.240$      \\
+               & $(0.069)$      & $(0.150)$     \\
+time           & $0.230^{***}$  & $0.230^{***}$ \\
+               & $(0.034)$      & $(0.053)$     \\
+lnarea         & $0.185^{***}$  & $0.185^{**}$  \\
+               & $(0.038)$      & $(0.063)$     \\
+lnpopden       & $0.299^{***}$  & $0.299^{***}$ \\
+               & $(0.030)$      & $(0.055)$     \\
+city           & $0.111$        & $0.111$       \\
+               & $(0.065)$      & $(0.131)$     \\
+Region         & $0.018^{*}$    & $0.018$       \\
+               & $(0.007)$      & $(0.019)$     \\
+treatment:time & $0.227^{*}$    & $0.227$       \\
+               & $(0.095)$      & $(0.129)$     \\
+\hline
+R$^2$          & 0.069          & 0.069         \\
+Adj. R$^2$     & 0.068          & 0.068         \\
+Num. obs.      & 4126           & 4126          \\
+RMSE           & 1.022          & 1.022         \\
+N Clusters     &                & 58            \\
+\hline
+\multicolumn{3}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q6: Robust Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+
+7. Using your regression model from Question 6 applied to all of the outcome variables, try to replicate all of the columns of Panel 1 of Table 3 of Malesky et al. (Some of them might not be the same).
+
+```{r}
+#clustered standard error
+model6 <- df %>% 
+  lm_robust(index_agric ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+model7 <- df %>% 
+  lm_robust(index_health ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+model8 <- df %>% 
+  lm_robust(index_education ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+model9 <- df %>% 
+  lm_robust(index_comms ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+model10 <- df %>% 
+  lm_robust(index_bus_dev ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+#texreg(list(model6, model7, model8, model9, model10), include.ci = F, digits = 3, caption = "Q6: Robust Regression")
+```
+
+My regression output is similar to the ones in Table 3 of Malesky et al. 
+
+The treatment:time coefficient is only statistically significant when the outcome is the health index.
+
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c c c c c }
+\hline
+ & Model 1 & Model 2 & Model 3 & Model 4 & Model 5 \\
+\hline
+(Intercept)    & $2.838$   & $1.322^{***}$  & $0.562$        & $0.632$       & $-1.597^{***}$ \\
+               & $(4.292)$ & $(0.160)$      & $(0.298)$      & $(0.334)$     & $(0.422)$      \\
+treatment      & $-1.722$  & $-0.040$       & $0.024$        & $-0.112$      & $0.016$        \\
+               & $(1.043)$ & $(0.022)$      & $(0.099)$      & $(0.108)$     & $(0.186)$      \\
+time           & $-0.149$  & $-0.013$       & $0.080^{**}$   & $-0.053^{*}$  & $-0.017$       \\
+               & $(0.506)$ & $(0.017)$      & $(0.027)$      & $(0.023)$     & $(0.032)$      \\
+lnarea         & $1.227$   & $-0.095^{***}$ & $0.197^{***}$  & $0.099^{*}$   & $0.399^{***}$  \\
+               & $(0.644)$ & $(0.022)$      & $(0.047)$      & $(0.043)$     & $(0.071)$      \\
+lnpopden       & $0.763$   & $-0.170^{***}$ & $0.130^{**}$   & $0.223^{***}$ & $0.505^{***}$  \\
+               & $(0.606)$ & $(0.022)$      & $(0.041)$      & $(0.044)$     & $(0.063)$      \\
+city           & $0.582$   & $0.012$        & $0.202$        & $0.067$       & $0.178$        \\
+               & $(3.530)$ & $(0.019)$      & $(0.086)$      & $(0.086)$     & $(0.195)$      \\
+Region         & $0.466$   & $-0.009^{*}$   & $-0.044^{***}$ & $0.019$       & $-0.004$       \\
+               & $(0.239)$ & $(0.004)$      & $(0.010)$      & $(0.009)$     & $(0.019)$      \\
+treatment:time & $2.082$   & $0.125^{**}$   & $0.094$        & $0.142$       & $0.007$        \\
+               & $(1.614)$ & $(0.033)$      & $(0.089)$      & $(0.082)$     & $(0.102)$      \\
+\hline
+R$^2$          & 0.024     & 0.109          & 0.027          & 0.083         & 0.099          \\
+Adj. R$^2$     & 0.022     & 0.107          & 0.026          & 0.081         & 0.097          \\
+Num. obs.      & 4126      & 4126           & 4126           & 4126          & 4126           \\
+RMSE           & 11.055    & 0.393          & 0.857          & 0.682         & 1.030          \\
+N Clusters     & 58        & 58             & 58             & 58            & 58             \\
+\hline
+\multicolumn{6}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q7: Robust Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+8. Assess the balance in land area (totalland) of the treated and control units in time t = 0 using a simple t-test. (Focus on the substantive difference more than the p-value.) Is there are any evidence of imbalance? Would this create a risk of bias for our difference-in-differences analysis?
+
+The provinces on control group have a greater land area than the treatment group on average, although they aren't statistically different. The difference is of 153.522.
+I guess that this imbalance between the treatment and control groups isn’t a risk of bias for our analysis.
+
+
+
+```{r}
+df %>% 
+  filter(time == 0) %>% 
+  t.test(totalland ~ treatment, data = .)
+```
+
+
+9. The difference-in-differences methodology cannot protect us against time-varying confounders. Provide an example of an omitted (confounding) variable that might create bias in our results even though we have used a differences-in-differences approach.
+
+Perhaps there's a trend of indicators improvement during the last years. So the change wouldn't be due to the treatment. We need data about the before years to check if there is an improvement trend in the last years.
+
+10. One way of testing for the presence of time-varying confounders is to check that there are parallel pre-treatment trends in the outcomes for treated and control units. Using the second dataset, Vietnam0608.csv, and your main difference-in-differences regression from Question 6 (with control variables and clustered standard errors), assess if treated units had a different trend to control units before treatment, i.e. between 2006 and 2008, for each of the 6 outcome indices. This should replicate Panel 2 of Table 3 in Malesky et al.
+
+No, there aren't parallel pre-treatment trends in the different indexes. Because of the treatment, time, and tratment:time coefficients aren't statistically significant between 2006 and 2008. So, the change in the indexes between 2008 and 2010 was due to the treatment.
+
+Time beta is only statistically significant when the outcome is the agriculture index.
+
+
+```{r}
+df2 <-read.csv("https://jonnyphillips.github.io/Methods_III/Classes/Class_8/Replication/Vietnam0608.csv")
+
+#clustered standard error
+model12 <- df2 %>% 
+  lm_robust(index_infra ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+model13 <- df2 %>% 
+  lm_robust(index_agric ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+model14 <- df2 %>% 
+  lm_robust(index_health ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+model15 <- df2 %>% 
+  lm_robust(index_education ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+model16 <- df2 %>% 
+  lm_robust(index_comms ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+model17 <- df2 %>% 
+  lm_robust(index_bus_dev ~ treatment + time + treatment*time + lnarea + lnpopden + city + Region, data = ., clusters = District)
+
+#texreg(list(model12, model13, model14, model15, model16, model17), include.ci = F, digits = 3, caption = "Q10: Robust Regression")
+```
+
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c c c c c c }
+\hline
+ & Model 1 & Model 2 & Model 3 & Model 4 & Model 5 & Model 6 \\
+\hline
+(Intercept)    & $1.787^{***}$ & $3.162$      & $1.411^{***}$  & $0.461$        & $0.838^{*}$   & $-1.945^{***}$ \\
+               & $(0.441)$     & $(4.328)$    & $(0.171)$      & $(0.326)$      & $(0.374)$     & $(0.477)$      \\
+treatment      & $-0.146$      & $-0.437$     & $-0.008$       & $-0.030$       & $-0.053$      & $0.022$        \\
+               & $(0.149)$     & $(1.082)$    & $(0.031)$      & $(0.100)$      & $(0.106)$     & $(0.183)$      \\
+time           & $0.000$       & $1.159^{**}$ & $-0.005$       & $0.024$        & $0.019$       & $0.031$        \\
+               & $(0.031)$     & $(0.430)$    & $(0.016)$      & $(0.028)$      & $(0.023)$     & $(0.033)$      \\
+lnarea         & $0.134^{*}$   & $1.031$      & $-0.106^{***}$ & $0.211^{***}$  & $0.056$       & $0.433^{***}$  \\
+               & $(0.065)$     & $(0.608)$    & $(0.020)$      & $(0.053)$      & $(0.051)$     & $(0.077)$      \\
+lnpopden       & $0.204^{**}$  & $0.652$      & $-0.181^{***}$ & $0.149^{**}$   & $0.196^{***}$ & $0.558^{***}$  \\
+               & $(0.060)$     & $(0.579)$    & $(0.024)$      & $(0.047)$      & $(0.049)$     & $(0.070)$      \\
+city           & $0.118$       & $2.679$      & $0.031$        & $0.191$        & $0.036$       & $0.136$        \\
+               & $(0.245)$     & $(1.786)$    & $(0.031)$      & $(0.161)$      & $(0.079)$     & $(0.143)$      \\
+Region         & $-0.003$      & $0.363$      & $-0.009^{*}$   & $-0.054^{***}$ & $0.025^{*}$   & $-0.007$       \\
+               & $(0.016)$     & $(0.189)$    & $(0.004)$      & $(0.013)$      & $(0.010)$     & $(0.019)$      \\
+treatment:time & $-0.095$      & $-1.659$     & $-0.034$       & $0.040$        & $-0.051$      & $-0.018$       \\
+               & $(0.071)$     & $(0.953)$    & $(0.032)$      & $(0.052)$      & $(0.050)$     & $(0.076)$      \\
+\hline
+R$^2$          & 0.024         & 0.025        & 0.108          & 0.025          & 0.076         & 0.105          \\
+Adj. R$^2$     & 0.023         & 0.024        & 0.107          & 0.024          & 0.075         & 0.104          \\
+Num. obs.      & 4220          & 4220         & 4220           & 4220           & 4220          & 4220           \\
+RMSE           & 0.989         & 9.767        & 0.400          & 0.850          & 0.703         & 1.053          \\
+N Clusters     & 59            & 59           & 59             & 59             & 59            & 59             \\
+\hline
+\multicolumn{7}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q10: Robust Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+
+11. Create a Difference-in-differences chart showing the average Infrastructure Index outcome by treatment group between 2008 and 2010. Compare this to the same chart between 2006 and 2008. What do these charts suggest about the validity of our difference-in-differences methodology?
+
+The difference-in-differences between 2008 and 2010 is of 0.25 points on the average Infrastructure Outcome.
+
+Between 2006 and 2008 the difference-in-differences are of -0.10. Thus, the control group performed better than the treatment. But with the decentralization in 2009, the inverse is true.
+
+```{r}
+d_in_means2 <- df2 %>% 
+  dplyr::group_by(treatment, time) %>% 
+  dplyr::summarise(avg = mean(index_infra))
+
+d_in_means2 %>% 
+  spread(key = "time", value = "avg") %>% 
+  ungroup() %>% 
+  dplyr::mutate(Diff= `1` - `0`,
+         Diff_Diff=Diff-lag(Diff)) %>% 
+  kable(caption = "Q12: 2006-2008")
+```
+
+
+![Q11: 2008-2010](tabela.PNG)
+
+```{r}
+d_in_means <- df %>% 
+  dplyr::group_by(treatment, time) %>% 
+  dplyr::summarise(avg = mean(index_infra))
+
+d_in_means %>% 
+  spread(key = "time", value = "avg") %>% 
+  ungroup() %>% 
+  dplyr::mutate(Diff= `1` - `0`,
+         Diff_Diff=Diff-lag(Diff)) %>% 
+  kable(caption = "Q11: 2008-2010")
+```
+
+
+
+
+

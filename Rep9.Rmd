@@ -1,0 +1,187 @@
+---
+title: "FLS 6415: Replication 8 - Matching"
+author: "Camila Bezerra"
+date: "20th May, 2020"
+output: pdf_document
+---
+
+
+# FLS 6415: Replication 9 - Comparative Case Studies & Process Tracing
+
+```{r message = F}
+# open libraries
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(knitr)
+library(ggthemes)
+library(Rmisc)
+library(estimatr)
+library(texreg)
+library(MASS)
+library(rms)
+library(MatchIt)
+```
+
+
+To be submitted (code + answers) by midnight, Wednesday 20th May.
+
+First read the paper by Levitsky and Way (2010) on the course website. Rather than a quantitative replication we are going to work through the logic of their argument from the perspective of causal inference.
+
+1. What are the treatment and outcome variables in Levitsky and Way (2010)? Define the potential outcomes Y0 and Y1 for their study.
+
+Treatment: Party Origin (party strength)
+
+* Levitsky and Way (2010) investigated how the variation in party strength influences on autocratic regime durability. And according to them, the party origin is a key feature to the party strength, since the non-material source is important to the party cohesion. Because in the period of crisis, non-material is more effective than the material to maintain cohesion.
+
+* Their main argument is that parties that emerged in the violent period are more effective to maintain cohesion than the patronage. Since, in a period of economic crisis, money is a scarce resource.
+
+Outcome: Autocratic regime durability. 
+
+All countries studied had an autocratic regime, and the autocratic party was in a similar time in all countries, but when they've faced a crisis, they performed differently. So, the Y0 is the autocratic regime that hasn't survived the economic/succession crisis, and Y1 is when it has survived.
+
+2. Describe the treatment assignment mechanism.
+
+The treatment assignment mechanism isn't random nor as-if random. It's intrinsic to the country's history and socioeconomic status. 
+
+
+3. The confounders Levitsky and Way identify are informed by alternative theories that might explain the fall of a ruling party. List the alternative theories that you can identify in their article and the associated variables/measurement that they seek to show are not a threat either because they are balanced or that the variable points in the ‘other’ direction.
+
+In the paper research design, Levitsky and Way want the treatment and outcome to vary, but they want to control by the alternative theories:
+
+Socioeconomic:
+* Poor countries: 
+    * Per Capita GDP below $1000
+* Rural Countries
+* Economic/succession crisis.
+
+Party status:
+
+* The country was ruled by the party that participated in the independence process.
+* Years in power:
+      * All them were in power for a decade.
+
+Regime type:
+
+* All of them were or transitioning to competitive authoritarian.
+
+
+4. Pick two of the confounders you identified in Q3 and do some quick research online to get quantitative estimates of the value of these confounders for each of the four countries (eg. if population growth was a factor you could look up population growth rates for each country. . . ). Create a very simple table and use it to assess if you think these confounders are problematic for their argument.
+
+```{r}
+# The Code I used to get the indicators from World Bank is available in the link below:
+##https://www.kaggle.com/bezerracamila/world-bank-data-tutorial
+
+df = read.csv('wb.csv')
+```
+
+The table below shows the indicator's average by Country. I calculated the indicator's average to each country between 1990 e 2000. I've chosen this period because it's the period studied by the authors. They use GDP per Capita to operationalize the economic status confounder. 
+Thus I used two World Bank indicators to assess the economic status, GDP Growth, and GDP per Capita. The variable Rural Population operationalizes the % of people who live in rural areas in each country. The GDP Growth(%) Average is similar to acrros the countries. The ANOVA test shows that the difference between them isn't statistically significant. And the boxplot also illustrates this.
+
+On the other hand, the countries differ on GDP per Capita average, although Kenya and Mozambique have similar averages on the period, Zimbabwe has a greater average. The ANOVA test and boxplot show that the difference is statistically significant. But the averages are below $1000, the threshold adopted by the authors.
+
+In all countries, the majority of the population is rural in the period studied. But they're perfectly balanced, Kenya has the most percentage. And the difference among them is statistically significant as the ANOVA test and box plot shows.
+
+```{r}
+df %>% 
+  dplyr::group_by(country) %>% 
+  dplyr::summarise(gdp_growth_avg = round(mean(gdp_growth), digits = 2),
+            gdp_cap_mean = round(mean(gdp_cap, na.rm = T), digits =2),
+            rural_mean = round(mean(rural_pop), digits = 2)) %>% 
+  kable()
+```
+
+
+```{r}
+aov(gdp_growth ~ country, data = df) %>% 
+  summary()
+```
+
+
+```{r}
+# grouped boxplot
+ggplot(df, aes(x=country, y=gdp_growth)) + 
+    geom_boxplot() +
+  ggtitle('GDP Growth(%) by Country')+
+  ylab('GDP Growth')
+```
+
+
+```{r}
+aov(gdp_cap ~ country, data = df) %>% 
+  summary()
+```
+
+```{r}
+# grouped boxplot
+ggplot(df, aes(x=country, y=gdp_cap)) + 
+    geom_boxplot()+
+  ggtitle('GDP per Capita by Country')+
+  ylab('GDP per Capita')
+```
+
+
+```{r}
+aov(rural_pop ~ country, data = df) %>% 
+  summary()
+```
+
+```{r}
+# grouped boxplot
+ggplot(df, aes(x=country, y=rural_pop)) + 
+    geom_boxplot()+
+  ggtitle('Rural Population(%) by Country')+
+  ylab('Rural Population(%)')
+```
+
+5. One assumption we made in the first class was SUTVA (Stable Unit Treatment Value Assumption), which means that the treatment of unit i does not affect the potential outcomes for unit j. Is this assumption likely to be valid for this particular study? Provide a real-world example to support your point.
+
+All the countries are from the same continent, so, they can have a similar historical context. Since they were all colonized and went through the same independent process. But a country being treated doesn't affect the treatment in another country. Since the treatment variable is the party origin. So, if a party uses violence to maintain cohesion, due to its origin, cannot influence the origin of another country.
+
+7. One potential confounder is natural resources, which might make violent revolution more likely (as groups fight to control the resource) AND might make ruling parties less likely to collapse (as they have more resources to support their dominance). Imagine that Zambia had much more natural resources than Zimbabwe (which it does). Would this pattern of imbalance be a risk to Levitsky and Way’s research design? Why/why not?
+
+Zambia and Kenya: non-violent origin(patronage to maintain cohesion)
+
+Mozambique and Zimbabwe: violent origin.
+
+Natural Resources: Zambia > Zimbabwe
+
+No, this wouldn't be a great issue, since the Authoritarian Party in Zambia has a non-violent origin and more natural resources, on thesis, their patronage system wouldn't be affected very much by the crisis. But, if Zimbabwe had more natural resources than Zambia would be a problem because the regime could have survived because of Zimbabwe's natural resources and not due to its violent origin.
+
+8. Levitsky and Way do not describe in detail their case selection process. Describe what you think are the main reasons for their choice of cases.
+
+They've chosen countries that varies in the ouctome variable. They've in common the authoritarian regime. But they differ on origin. Their argument is that, this difference lead to differenece regime outcome when confronted with a crisis. So, probabily they've chosen countries with those characterits and that don't differ on the confounder variables.
+
+9. How generalizable to other cases of competitive authoritarian ruling parties are their findings? Pick one of the confounders you measured in Q4 and compare the cases to values for a few other competitive authoritarian regimes to see how representative they are. Hint: Just pick a few examples at random, no need to calculate a mean or anything.
+
+```{r}
+df2 <- read.csv('wb2.csv')
+```
+
+I've chosen Afghanistan, Angola and Burundi to compare with the other countries on the percentage of rural population. Their population are rural majoritaly. So, considering only this confounder, the results would be generalizable, but we need to check for the other confounder such as Natural Resources and etc.
+
+```{r}
+df2 %>% 
+  dplyr::group_by(country) %>% 
+  dplyr::summarise(rural_mean = round(mean(rural_pop), digits = 2)) %>% 
+  kable()
+```
+
+```{r}
+# grouped boxplot
+ggplot(df2, aes(x=country, y=rural_pop)) + 
+    geom_boxplot()+
+  ggtitle('Rural Population(%) by Country')+
+  ylab('Rural Population(%)')
+```
+10. Identify another country case that would support Levitsky and Way’s argument, and explain why it supports their argument. OR identify a country that would undermine their argument, and explain why it undermines their argument. Hint: See Here for a list of countries by regime type (competitive authoritarian is basically ‘anocracy’).
+
+Angola's case would support Levitsky and Way’s argument. Because the Popular Movement for the Liberation of Angola (MPLA) had a violent origin since it fought against the Portuguese colonization. And when Angola system changed to multiparty democracy in 1992, the President elected José Eduardo dos Santos were from the MPLA, this party was in power since 1975, when the country became independent. He was elected with 49% of the votes, there wasn't a second runoff, although it was necessary.
+
+Source: https://en.wikipedia.org/wiki/Politics_of_Angola.
+
+11. One strategy for improving causal inference is to increase the number of observations within our cases. Provide one suggestion for how we might get more observations to test their theory even if we stick with the country cases of Kenya, Mozambique, Zambia and Zimbabwe.
+
+The authors could change the unit of analysis. So, instead of comparing the countries, they could compare the countries' provinces, it would increase the number of observations, and we would stick with the same cases: Kenya, Mozambique, Zambia, and Zimbabwe.

@@ -1,0 +1,459 @@
+---
+title: "FLS 6415: Replication 5 - Discontinuities"
+author: "Camila Bezerra"
+date: "22nd April, 2020"
+output: pdf_document
+---
+
+
+# FLS 6415: Replication 5 - Discontinuities
+
+```{r message = F}
+# open libraries
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(knitr)
+library(ggthemes)
+library(Rmisc)
+library(broom)
+library(estimatr)
+library(texreg)
+library(rddensity)
+library(rdrobust)
+```
+
+
+First read the paper by Titiunik (2011) on the class website. As with all regression discontinuities, 90% of the work is in preparing the dataset. If you want to prepare the dataset from scratch, please start with Question 1, it’s a few extra lines of coding but it’s a valuable learning experience. If you aren’t able to prepare the dataset, or aren’t comfortable with the coding, you can use the dataset available on the website and start at Question 5.
+
+1. We need data from 2000 and 2004 Mayors. We can download this from cepespdata.io.
+Choose “Consultar resultados eleitorais” and we want prefeito data at the municipal level for parties in the 2000 elections first. Finally, make the same selection for 2004 and download this as a separate CSV. Details for the description of each variable can be found on cepesp.io (see ‘selecionar colunas’).
+
+2. First, prepare the 2000 dataset:
+
+a. Filter the data to include only the first round and to remove municipalities where only one party ran uncontested.
+
+b. Calculate the total number of votes in each municipality.
+
+c. Calculate the percentage vote share for each party in each municipal contest
+
+d. Calculate which position the party came in the municipal election (their rank).
+
+e. Filter the dataset to focus on only the first and second-placed parties.
+
+f. Make a binary variable that is equal to ‘1’ for the winning party that becomes the incumbent.
+
+g. Add a column for the vote share of the winning party, and a second column for the vote share of the second-placed party. (Hint: use the nth function in R)
+
+h. Remove two annoying cases where the election result was tied (so we dont know who became the incumbent)!
+
+i. Calculate the winning margin of each party. For the winning party, this is the vote share of the winner minus the vote share of the second place party (positive values). For the second-place parties, this is the vote share of the second place party minus the vote share of the winning party (negative values).
+
+3. Next, prepare the 2004 dataset:
+
+a. Filter for the first round.
+
+b. Calculate our outcome measure: the vote share (not the winning margin) of each party in each municipal contest.
+
+c. Select only the Municipality Code, Party and Vote Share variables.
+
+4. Join the two datasets (2000 and 2004 for all parties) based on the municipality (COD_MUN_IBGE) and party (NUMERO_PARTIDO) so that for every party that ran in both 2000 and 2004 we know what vote share they got in 2004. (What type of join do we want here? Left, Right, Inner?)
+
+[If you are using the dataset downloaded from the website, start from Q5 below. Otherwise, continue with the dataset you prepared above.]
+
+5. For the next set of questions we will focus only on the PMDB. Subset the data so it includes only the PMDB. If we did not know about regression discontinuity we might run the observational OLS regression of PMDB 2004 vote share on incumbency in 2000. Run and interpret this regression.
+
+```{r}
+link = "https://jonnyphillips.github.io/Methods_III/Classes/Class_7/Replication/Electoral_data.csv"
+df <- read.csv(link, sep = ",")
+```
+
+```{r}
+# filter the data
+df_PMDB <- df %>% 
+  filter(SIGLA_PARTIDO == "PMDB")
+```
+
+```{r}
+# regression
+model1 <- df_PMDB %>% 
+  lm(Pct_Votes_2004 ~ Incumbent, data = .)
+
+#texreg(model1, include.ci = F, digits = 3, caption = "Q1: Bivariate Regression")
+```
+
+By this regression, we're estimating the effect of PMDB being Incumbent on the vote share in 2000. When this Party is the incumbent, it increases 0.017 points on vote share. This coefficient isn't significant on the 0.05 level, only on 0.1 level.
+
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept) & $0.438^{***}$ \\
+            & $(0.005)$     \\
+Incumbent   & $0.017^{*}$   \\
+            & $(0.007)$     \\
+\hline
+R$^2$       & 0.004         \\
+Adj. R$^2$  & 0.003         \\
+Num. obs.   & 1415          \\
+RMSE        & 0.137         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q1: Bivariate Regression}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+
+6. Before implementing any regression discontinuities, let’s check for balance around the discontinuity. Within a +/-1% winning margin in 2000 check the balance of the total number of voters in treated and control municipalities in 2000 (we created this variable in Q2). Compare this to the balance for a winning margin of +/-3%.
+
+The difference between the two groups with the first margin is 150502. And is 422647 when the margin is +/-3%. So it's smaller than when the margin is +/- 1%.
+
+```{r}
+df_PMDB %>% 
+  dplyr::filter(Win_Margin_2000 >= -0.01 & Win_Margin_2000 <= 0.01) %>% 
+  dplyr::group_by(Rank) %>% 
+  dplyr::summarise(votos = sum(Tot_votes_2000)) %>% 
+  kable()
+
+df_PMDB %>% 
+  dplyr::filter(Win_Margin_2000 >= -0.03 & Win_Margin_2000 <= 0.03) %>% 
+  dplyr::group_by(Rank) %>% 
+  dplyr::summarise(votos = sum(Tot_votes_2000)) %>% 
+  kable()
+```
+
+I also performed t.test in order to see if the difference between treatment and control groups are significant within each margin threshold.
+
+Within the +/- 1% margin, the difference between the averages isn't statistically significant on 0.05 level.
+
+```{r}
+df_PMDB %>% 
+  dplyr::filter(Win_Margin_2000 >= -0.01 & Win_Margin_2000 <= 0.01) %>% 
+  t.test(Tot_votes_2000 ~ Rank, data = .) 
+```
+
+Within the +/- 3% margin, the difference between the averages isn't statistically significant on 0.05 level. Thus we can conclude that on average the treatment and control groups aren't statistically different within each margin.
+
+```{r}
+df_PMDB %>% 
+  dplyr::filter(Win_Margin_2000 >= -0.03 & Win_Margin_2000 <= 0.03) %>% 
+  t.test(Tot_votes_2000 ~ Rank, data = .) 
+```
+
+
+7. Next, check for sorting and manipulation of the threshold with the McCrary density test using the rddensity function. Interpret the results and produce a density plot using the rdplotdensity.
+
+```{r}
+# df_PMDB %>% 
+#   dplyr::filter(Win_Margin_2000 >= -0.01 & Win_Margin_2000 <= 0.01) %>% 
+#  rddensity(Tot_votes_2000, vce="jackknife", data = .)
+```
+
+The original PMDB data frame has 1415 observations. 649 of these observations are below the 0.01 cutoff and 766 above. They are similarly distributed since the t-test in rddensity isn't statistically significant and the graph shows that the confidence intervals interpolate.
+
+
+```{r}
+rd_1 <- rddensity(X = df_PMDB$Win_Margin_2000, vce="jackknife")
+summary(rd_1)
+```
+
+
+```{r}
+rdplotdensity(rd_1, df_PMDB$Win_Margin_2000, plotRange = c(-0.03, 0.03))
+```
+
+8. Before we run the analysis, let’s construct a regression discontinuity plot to visually inspect the causal effect of incumbency at the threshold. Using a pre-packaged command like rdplot from the rdrobust package, create a regression discontinuity plot for the effect of incumbency in 2000 on vote share in 2004 for the PMDB. Use linear regression lines. Interpret the results.
+
+As the cutoff is on 0 on the x-axis, it seems that get a winning margin positive, i.e., win the election, has a negative effect on the share of votes in the 2004 election for PMDB.
+
+```{r, eval = F}
+rdplot(x = df_PMDB$Win_Margin_2000, y = df_PMDB$Pct_Votes_2004,  p = 1)
+```
+
+
+
+9. Create a second regression discontinuity plot with third-order polynomial regression lines.
+
+When we use a third-order polynomial the relation isn't linear anymore, but the trend seems to be the same as the previous equation.
+
+```{r, eval = F}
+rdplot(x = df_PMDB$Win_Margin_2000, y = df_PMDB$Pct_Votes_2004,  p = 3)
+```
+
+10. We will now implement four alternative specifications of the same regression discontinuity.
+
+For the first version of the analysis, implement a simple difference-in-means test comparing the average vote share received by the PMDB in 2004 for incumbents vs. non-incumbents within a bandwidth of +/-3% winning margin in 2000. Interpret these results and compare to the observational regression in Q5.
+
+The difference between the two averages is 0.05 points. It's is statistically significant on the 0.05 level. 
+
+In regression 5 we've included all the observations, and in this t-test on the observation in the threshold. The two results showed that the incumbents and non-incumbents received a similar share of votes on average.
+
+
+
+```{r}
+df_PMDB %>% 
+  dplyr::filter(Win_Margin_2000 >= -0.03 & Win_Margin_2000 <= 0.03) %>% 
+  stats::t.test(Pct_Votes_2004 ~ Incumbent, data = .) %>% 
+  tidy() %>% kable()
+
+```
+
+
+
+11. For the second version, implement the full-data regression discontinuity analysis. Interpret this regression and compare it to your results in Q10.
+
+In this regression, because we are implementing the full-data regression discontinuity analysis, the variable Win_Margin_2000 is included in the model. Thus the Incumbency effect on the 2004 election is now controlled by the margin of votes that the Incumbent was elected in 2000.
+
+An incumbent from PDBM received on average -0.048 point on the vote share in 2004 elections than a non-incumbent from the same Party. This effect is statistically significant on the 0.001 level. 
+
+The challenger from PMDB received 0.47% of the votes in the 2004 elections.
+
+The regression estimates are very similar to the t-test ones, but in the t-test, they are a little greater.
+
+
+```{r}
+# regression
+model2 <- df_PMDB %>% 
+  lm(Pct_Votes_2004 ~ Incumbent + Win_Margin_2000, data = .)
+
+#texreg(model2, include.ci = T, digits = 3, caption = "Q2:  Regression Discontinuity")
+```
+
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept)       & $0.467^{***}$  \\
+                  & $(0.006)$      \\
+Incumbent         & $-0.048^{***}$ \\
+                  & $(0.011)$      \\
+Win\_Margin\_2000 & $0.231^{***}$  \\
+                  & $(0.028)$      \\
+\hline
+R$^2$             & 0.048          \\
+Adj. R$^2$        & 0.047          \\
+Num. obs.         & 1415           \\
+RMSE              & 0.134          \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q11: Regression Discontinuity}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+12. For the third version, implement the limited-bandwidth regression discontinuity analysis for a bandwidth of +/-3%. Interpret this regression and compare it to your results in Q10 and Q11.
+
+The three results are very similar. They follow the same trend, the challenged from PMDB received around 0.4 of the votes. The incumbency status has a negative effect on the share of votes in 2004. In the regression with the bandwidth of +/-3%, this effect isn't statistically significant anymore. Because the standard error for the Incumbent variable is a little greater.
+
+
+```{r}
+# regression
+model3 <- df_PMDB %>% 
+   dplyr::filter(Win_Margin_2000 >= -0.03 & Win_Margin_2000 <= 0.03) %>% 
+  lm(Pct_Votes_2004 ~ Incumbent + Win_Margin_2000, data = .)
+
+#texreg(model3, include.ci = T, digits = 3, caption = "Q12: Regression Discontinuity")
+```
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept)       & $0.468^{***}$ \\
+                  & $(0.022)$     \\
+Incumbent         & $-0.029$      \\
+                  & $(0.037)$     \\
+Win\_Margin\_2000 & $-0.836$      \\
+                  & $(1.073)$     \\
+\hline
+R$^2$             & 0.040         \\
+Adj. R$^2$        & 0.031         \\
+Num. obs.         & 236           \\
+RMSE              & 0.138         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q12: Regression Discontinuity}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+13. Fourth, let’s implement the optimal-bandwidth linear regression discontinuity using the rdrobust command. What bandwidth was selected? How do the results compare to the other methodologies?
+
+The main bandwidth chosen (BW est. (h)) is 0.135 and the bandwidth with bias correction (BW bias (b)) is 0.216.
+
+The conventional coefficient is -0.056 and is statistically significant at the 0.005 level. As in the other methodologies, it shows that the incumbency status has very little effect on the PMDB vote share in 2004.
+
+
+```{r}
+rdrobust(df_PMDB$Pct_Votes_2004, df_PMDB$Win_Margin_2000) %>% 
+  summary()
+```
+
+14. Now let’s try to adjust the functional form used to estimate the effect of the rnuning variable. Implement the optimal-bandwidth regression discontinuity but with a second-order polynomial (quadratic) trend. Also try a third-order polynomial (cubic) trend and assess the sensitivity of the results.
+
+The main bandwidth chosen (BW est. (h)) is 0.202 and the bandwidth with bias correction (BW bias (b)) is 0.288.
+
+```{r}
+rdrobust(df_PMDB$Pct_Votes_2004, df_PMDB$Win_Margin_2000, p = 2) %>% 
+  summary()
+```
+
+The main bandwidth chosen (BW est. (h)) is 0.206 and the bandwidth with bias correction (BW bias (b)) is 0.265.
+
+The Conventional coefficient for the third-order polynomial is a little more negative than the second one. While the second is statistically significant on the 0.05 level, the third isn't.
+
+
+```{r}
+rdrobust(df_PMDB$Pct_Votes_2004, df_PMDB$Win_Margin_2000, p = 3) %>% 
+  summary()
+```
+
+15. The Mayor of a small municipality calls you for political advice. He wants to know what vote share his party (the PMDB) is likely to receive in the next election. He is very confident because at the last election he won easily with a winning margin of 30% and he is now the incumbent. Based on the evidence you have recorded above from the regression discontinuities, how would you advise the Mayor about his likely performance in the next election? Will being an incumbent boost his vote share at the next election?
+
+```{r}
+# regression
+model6 <- df_PMDB %>% 
+   dplyr::filter(Win_Margin_2000 >= -0.3 & Win_Margin_2000 <= 0.3) %>% 
+  lm(Pct_Votes_2004 ~ Incumbent + Win_Margin_2000, data = .)
+
+texreg(model6, include.ci = T, digits = 3, caption = "Q15: Regression Discontinuity - PMDB")
+```
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept)       & $0.469^{***}$  \\
+                  & $(0.007)$      \\
+Incumbent         & $-0.050^{***}$ \\
+                  & $(0.013)$      \\
+Win\_Margin\_2000 & $0.244^{***}$  \\
+                  & $(0.048)$      \\
+\hline
+R$^2$             & 0.020          \\
+Adj. R$^2$        & 0.018          \\
+Num. obs.         & 1257           \\
+RMSE              & 0.133          \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q15: Regression Discontinuity - PMDB}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+No. The incumbency status has a negative effect (-0.05) on the vote share. This effect is not statistically significant on the 0.001 level. Thus the incumbency status won't have an advantage on vote share at the next election.
+
+16. Choose your preferred specification and implement the regression discontinuity for the other two parties: the PFL and the PSDB. How similar are your results to those in Titiunik (2011) for the +/-3% window?
+
+```{r}
+# filter the data
+df_PFL <- df %>% 
+  filter(SIGLA_PARTIDO == "PFL")
+
+df_PSDB <- df %>% 
+  filter(SIGLA_PARTIDO == "PSDB")
+```
+
+
+
+```{r}
+# regression
+model4 <- df_PFL %>% 
+   dplyr::filter(Win_Margin_2000 >= -0.03 & Win_Margin_2000 <= 0.03) %>% 
+  lm(Pct_Votes_2004 ~ Incumbent + Win_Margin_2000, data = .)
+
+#texreg(model4, include.ci = T, digits = 3, caption = "Q16: Regression Discontinuity - PFL")
+```
+
+I used the regression discontinuity with a +/- 0.3 bandwidth strategy to estimate the incumbency effect on the  PFL vote share in 2004.
+
+The PFL challenger received 0.511 of the votes on average, it's statistically significant on 0.001 level. The Incumbency status has a -0.109 on vote share, controlling for the WIn Margin of 2000 elections. It's statistically significant at the 0.05 level.
+
+Using this same threshold, Titiunik (2011) got a regression with a similar beta for incumbency advantage, -0.071, statistically significant on 0.05 level.
+
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept)       & $0.511^{***}$ \\
+                  & $(0.026)$     \\
+Incumbent         & $-0.109^{*}$  \\
+                  & $(0.052)$     \\
+Win\_Margin\_2000 & $2.421$       \\
+                  & $(1.503)$     \\
+\hline
+R$^2$             & 0.036         \\
+Adj. R$^2$        & 0.020         \\
+Num. obs.         & 129           \\
+RMSE              & 0.143         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q16: Regression Discontinuity - PFL}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+
+```{r}
+# regression
+model5 <- df_PSDB %>% 
+   dplyr::filter(Win_Margin_2000 >= -0.03 & Win_Margin_2000 <= 0.03) %>% 
+  lm(Pct_Votes_2004 ~ Incumbent + Win_Margin_2000, data = .)
+
+#texreg(model5, include.ci = T, digits = 3, caption = "Q16: Regression Discontinuity - PSDB")
+```
+
+
+I used the regression discontinuity with a +/- 0.3 bandwidth strategy to estimate the incumbency effect on the  PSDB vote share in 2004.
+
+The PSDB challenger received 0.356 of the votes, on average, it's statistically significant at 0.001 level. The Incumbency status has a 0.129 on vote share, controlling for the WIn Margin of 2000 elections. It's statistically significant at the 0.05 level.
+
+Using this same threshold, Titiunik (2011) got a regression with a similar beta for incumbency advantage, 0.035, it's not statistically significant on 0.05 level.
+
+Even though my results are different from Titiunik (2011), I cannot assure this difference is statistically significant.
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c }
+\hline
+ & Model 1 \\
+\hline
+(Intercept)       & $0.356^{***}$ \\
+                  & $(0.030)$     \\
+Incumbent         & $0.129^{*}$   \\
+                  & $(0.052)$     \\
+Win\_Margin\_2000 & $-3.818^{*}$  \\
+                  & $(1.604)$     \\
+\hline
+R$^2$             & 0.056         \\
+Adj. R$^2$        & 0.038         \\
+Num. obs.         & 110           \\
+RMSE              & 0.141         \\
+\hline
+\multicolumn{2}{l}{\scriptsize{$^{***}p<0.001$, $^{**}p<0.01$, $^*p<0.05$}}
+\end{tabular}
+\caption{Q16: Regression Discontinuity - PSDB}
+\label{table:coefficients}
+\end{center}
+\end{table}
